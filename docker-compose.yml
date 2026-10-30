@@ -1,0 +1,13 @@
+# Local run against the real box. Secrets come from private/.env (mode 600),
+# which is gitignored; docker passes it as environment, never as a build step.
+services:
+  hase10:
+    build: .
+    image: hase10smarthome:0.1.0
+    container_name: hase10
+    env_file:
+      - ./private/.env
+    command: ["watch", "--interval", "60"]
+    restart: unless-stopped
+    # the FRITZ!Box is on the LAN; host networking keeps discovery simple
+    # network_mode: host

@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hase10
+  namespace: hase10
+  labels:
+    app: hase10
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # one poller per box; no overlapping instances
+  selector:
+    matchLabels:
+      app: hase10
+  template:
+    metadata:
+      labels:
+        app: hase10
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: hase10
+          image: inkassodeppen/hase10smarthome:0.1.0
+          imagePullPolicy: IfNotPresent
+          args: ["watch", "--interval", "60"]
+          envFrom:
+            - secretRef:
+                name: hase10-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          # No probes on purpose: every probe would talk to the FRITZ!Box and
+          # add needless logins. The watch loop reconnects on its own.

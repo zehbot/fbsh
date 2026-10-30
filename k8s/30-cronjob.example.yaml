@@ -1,0 +1,30 @@
+# Alternative to the Deployment: one snapshot per run instead of a poll loop.
+# Useful for "dump the state to a file / log" without a long running pod.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hase10-snapshot
+  namespace: hase10
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+          containers:
+            - name: snapshot
+              image: inkassodeppen/hase10smarthome:0.1.0
+              args: ["devices", "--json"]
+              envFrom:
+                - secretRef:
+                    name: hase10-env
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}
+                limits: {memory: 128Mi}

@@ -27,7 +27,7 @@ def _add_connection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--verify-tls", action="store_true", default=None,
                         help="verify the box certificate (needs --ca-file)")
     parser.add_argument("--ca-file", help="PEM file with the box certificate")
-    parser.add_argument("--credentials", help="credentials file (default ~/.config/hase10/credentials)")
+    parser.add_argument("--env-file", help="dotenv file with FRITZ_* (default private/.env, then ./.env)")
     parser.add_argument("--timeout", type=float, default=10.0, help="HTTP timeout in seconds")
     parser.add_argument("--json", action="store_true", help="machine readable output")
 
@@ -79,7 +79,7 @@ def _connect(args) -> Aha:
         port=args.port,
         verify_tls=args.verify_tls,
         ca_file=args.ca_file,
-        credentials_file=args.credentials,
+        env_file=args.env_file,
     )
     session = Session(
         host=settings.host,

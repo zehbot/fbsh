@@ -91,7 +91,7 @@ class CliTest(unittest.TestCase):
             "--port", str(self.box.port),
             "--user", "hase10",
             "--password", "geheim",
-            "--credentials", "/nonexistent",
+            "--env-file", "/nonexistent",
         ]
         self._env = os.environ.pop("FRITZ_PASSWORD", None)
 
@@ -163,7 +163,7 @@ class CliTest(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = main(["devices"] + args)
         self.assertEqual(code, 2)
-        self.assertIn("no password configured", err.getvalue())
+        self.assertIn("no credentials configured", err.getvalue())
 
 
 if __name__ == "__main__":
