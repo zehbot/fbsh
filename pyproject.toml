@@ -1,16 +1,16 @@
 [project]
-name = "hase10smarthome"
+name = "fbsh"
 version = "0.1.0"
 description = "FRITZ!Box smart home control and monitoring (AHA-HTTP interface)"
 requires-python = ">=3.9"
 dependencies = []
 
 [project.scripts]
-hase10 = "hase10.cli:main"
+fbsh = "fbsh.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["hase10*"]
+include = ["fbsh*"]

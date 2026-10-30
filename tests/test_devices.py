@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from hase10 import models
-from hase10.devices import parse_devicelist
+from fbsh import models
+from fbsh.devices import parse_devicelist
 from tests.mock_fritz import MockBox
 
 
@@ -65,6 +65,19 @@ class ParseDevicelistTest(unittest.TestCase):
         plug = self.by_name["Kaffeemaschine"]
         self.assertIs(plug.switch.state, True)
         self.assertEqual(plug.switch.mode, "auto")
+
+    def test_capabilities_describe_what_a_device_delivers(self):
+        self.assertEqual(self.by_name["Kaffeemaschine"].capabilities,
+                         ["switch", "power", "temperature"])
+        self.assertIn("thermostat", self.by_name["Wohnzimmer"].capabilities)
+        self.assertIn("battery", self.by_name["Wohnzimmer"].capabilities)
+        self.assertIn("button", self.by_name["Flur Taster"].capabilities)
+        self.assertEqual(self.by_name["Gruppe Wohnzimmer"].capabilities, ["switch"])
+
+    def test_summary_contains_capabilities(self):
+        summary = self.by_name["Kaffeemaschine"].summary()
+        self.assertIn("capabilities", summary)
+        self.assertEqual(summary["capabilities"], ["switch", "power", "temperature"])
 
     def test_summary_is_json_ready(self):
         summary = self.by_name["Wohnzimmer"].summary()

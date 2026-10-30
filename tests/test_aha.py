@@ -8,9 +8,9 @@ import json
 import os
 import unittest
 
-from hase10.aha import Aha, AhaError
-from hase10.cli import main
-from hase10.session import Session
+from fbsh.aha import Aha, AhaError
+from fbsh.cli import main
+from fbsh.session import Session
 from tests.mock_fritz import MockBox
 
 PLUG = "08761 0000434"
@@ -23,7 +23,7 @@ class AhaTest(unittest.TestCase):
         self.box = MockBox().start()
         self.addCleanup(self.box.stop)
         session = Session(host="127.0.0.1", port=self.box.port,
-                          password="geheim", user="hase10", timeout=5)
+                          password="geheim", user="fbsh", timeout=5)
         self.aha = Aha(session)
 
     def test_device_list(self):
@@ -89,7 +89,7 @@ class CliTest(unittest.TestCase):
         self.connection = [
             "--host", "127.0.0.1",
             "--port", str(self.box.port),
-            "--user", "hase10",
+            "--user", "fbsh",
             "--password", "geheim",
             "--env-file", "/nonexistent",
         ]
@@ -105,12 +105,20 @@ class CliTest(unittest.TestCase):
             code = main(list(args) + self.connection)
         return code, out.getvalue(), err.getvalue()
 
-    def test_devices_table(self):
+    def test_devices_lists_kind_and_capabilities(self):
         code, out, _ = self.run_cli("devices")
         self.assertEqual(code, 0)
+        self.assertIn("DATA", out)
         self.assertIn("Kaffeemaschine", out)
-        self.assertIn("Wohnzimmer", out)
+        self.assertIn("switch, power, temperature", out)
+        self.assertIn("thermostat, temperature, battery", out)
+
+    def test_status_shows_values(self):
+        code, out, _ = self.run_cli("status")
+        self.assertEqual(code, 0)
+        self.assertIn("SETPOINT", out)
         self.assertIn("°C", out)
+        self.assertIn("28.5", out)
 
     def test_devices_json(self):
         code, out, _ = self.run_cli("devices", "--json")
@@ -119,6 +127,8 @@ class CliTest(unittest.TestCase):
         names = {entry["name"] for entry in payload}
         self.assertIn("Kaffeemaschine", names)
         plug = next(entry for entry in payload if entry["name"] == "Kaffeemaschine")
+        self.assertEqual(plug["kind"], "switch")
+        self.assertEqual(plug["capabilities"], ["switch", "power", "temperature"])
         self.assertAlmostEqual(plug["temperature_c"], 28.5)
         self.assertEqual(plug["power"]["energy_wh"], 707)
 
@@ -130,7 +140,7 @@ class CliTest(unittest.TestCase):
 
     def aha_state(self):
         session = Session(host="127.0.0.1", port=self.box.port,
-                          password="geheim", user="hase10", timeout=5)
+                          password="geheim", user="fbsh", timeout=5)
         return Aha(session).switch_state(PLUG)
 
     def test_thermostat_set(self):

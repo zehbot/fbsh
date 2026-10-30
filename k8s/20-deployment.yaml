@@ -1,34 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hase10
-  namespace: hase10
+  name: fbsh
+  namespace: fbsh
   labels:
-    app: hase10
+    app: fbsh
 spec:
   replicas: 1
   strategy:
     type: Recreate          # one poller per box; no overlapping instances
   selector:
     matchLabels:
-      app: hase10
+      app: fbsh
   template:
     metadata:
       labels:
-        app: hase10
+        app: fbsh
     spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
       containers:
-        - name: hase10
-          image: inkassodeppen/hase10smarthome:0.1.0
+        - name: fbsh
+          image: inkassodeppen/fbsh:0.1.0
           imagePullPolicy: IfNotPresent
           args: ["watch", "--interval", "60"]
           envFrom:
             - secretRef:
-                name: hase10-env
+                name: fbsh-env
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -4,7 +4,7 @@ Resolution order, first hit wins:
 
     1. command line arguments
     2. process environment (FRITZ_*)
-    3. a .env file: private/.env, then ./.env, then $HASE10_ENV_FILE
+    3. a .env file: private/.env, then ./.env, then $FBSH_ENV_FILE
 
 Recognised keys:
 
@@ -31,8 +31,8 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-ENV_VAR = "HASE10_ENV_FILE"
-PERMISSIVE_VAR = "HASE10_ENV_PERMISSIVE"
+ENV_VAR = "FBSH_ENV_FILE"
+PERMISSIVE_VAR = "FBSH_ENV_PERMISSIVE"
 
 # searched in this order, relative to the working directory and to the project root
 DEFAULT_NAMES = ("private/.env", ".env")

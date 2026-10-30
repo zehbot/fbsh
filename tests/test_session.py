@@ -5,16 +5,16 @@ from __future__ import annotations
 import hashlib
 import unittest
 
-from hase10.session import Blocked, LoginFailed, Session
+from fbsh.session import Blocked, LoginFailed, Session
 from tests.mock_fritz import MockBox
 
 
 class SessionTest(unittest.TestCase):
     def setUp(self):
-        self.box = MockBox(password="geheim", user="hase10").start()
+        self.box = MockBox(password="geheim", user="fbsh").start()
         self.addCleanup(self.box.stop)
 
-    def session(self, password="geheim", user="hase10"):
+    def session(self, password="geheim", user="fbsh"):
         return Session(host="127.0.0.1", port=self.box.port, password=password, user=user, timeout=5)
 
     def test_pbkdf2_login(self):

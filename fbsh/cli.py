@@ -1,4 +1,4 @@
-"""Command line interface: hase10 devices | switch | thermostat | watch | raw."""
+"""Command line interface: fbsh devices | status | switch | thermostat | watch | raw."""
 
 from __future__ import annotations
 
@@ -34,14 +34,18 @@ def _add_connection_options(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="hase10",
+        prog="fbsh",
         description="FRITZ!Box smart home control via the AHA-HTTP interface.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    devices = sub.add_parser("devices", help="list all smart home devices")
+    devices = sub.add_parser("devices", help="list devices with kind and capabilities")
     _add_connection_options(devices)
     devices.add_argument("--ain", help="only this device")
+
+    status = sub.add_parser("status", help="list devices with their current values")
+    _add_connection_options(status)
+    status.add_argument("--ain", help="only this device")
 
     switch = sub.add_parser("switch", help="switch a socket or light on/off")
     _add_connection_options(switch)
@@ -94,7 +98,24 @@ def _connect(args) -> Aha:
     return Aha(session)
 
 
-def _print_devices(devices: list[Device], as_json: bool) -> None:
+def _print_inventory(devices: list[Device], as_json: bool) -> None:
+    """Name, kind and what the device can do or deliver."""
+    if as_json:
+        print(json.dumps([device.summary() for device in devices], indent=2, ensure_ascii=False))
+        return
+    if not devices:
+        print("no smart home devices found")
+        return
+    print(f"{'NAME':<26}  {'KIND':<14}  DATA")
+    print("-" * 78)
+    for device in devices:
+        name = (device.name or device.ain)[:26]
+        caps = ", ".join(device.capabilities) or "-"
+        print(f"{name:<26}  {device.kind:<14}  {caps}")
+
+
+def _print_status(devices: list[Device], as_json: bool) -> None:
+    """Current values per device."""
     if as_json:
         print(json.dumps([device.summary() for device in devices], indent=2, ensure_ascii=False))
         return
@@ -123,7 +144,16 @@ def cmd_devices(args) -> int:
     devices = aha.device_list()
     if args.ain:
         devices = [_find(devices, args.ain)]
-    _print_devices(devices, args.json)
+    _print_inventory(devices, args.json)
+    return EXIT_OK
+
+
+def cmd_status(args) -> int:
+    aha = _connect(args)
+    devices = aha.device_list()
+    if args.ain:
+        devices = [_find(devices, args.ain)]
+    _print_status(devices, args.json)
     return EXIT_OK
 
 
@@ -250,6 +280,7 @@ def cmd_raw(args) -> int:
 
 HANDLERS = {
     "devices": cmd_devices,
+    "status": cmd_status,
     "switch": cmd_switch,
     "thermostat": cmd_thermostat,
     "watch": cmd_watch,

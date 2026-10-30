@@ -83,7 +83,7 @@ def _default_devices() -> list[dict]:
 
 
 class MockBox:
-    def __init__(self, password: str = "geheim", user: str = "hase10", md5_only: bool = False):
+    def __init__(self, password: str = "geheim", user: str = "fbsh", md5_only: bool = False):
         self.password = password
         self.user = user
         self.md5_only = md5_only

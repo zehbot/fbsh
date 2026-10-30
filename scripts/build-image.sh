@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-IMAGE="${IMAGE:-hase10smarthome}"
+IMAGE="${IMAGE:-fbsh}"
 TAG="${TAG:-0.1.0}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64,linux/arm/v7}"
 PUSH="${PUSH:-0}"

@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hase10 import config
-from hase10.config import ConfigError, Settings, find_env_file, parse_env_file
+from fbsh import config
+from fbsh.config import ConfigError, Settings, find_env_file, parse_env_file
 
 
 class ParseEnvFileTest(unittest.TestCase):
@@ -23,10 +23,10 @@ class ParseEnvFileTest(unittest.TestCase):
         return path
 
     def test_simple_values(self):
-        path = self.write("FRITZ_HOST=192.168.178.1\nFRITZ_USER=hase10\n")
+        path = self.write("FRITZ_HOST=192.168.178.1\nFRITZ_USER=fbsh\n")
         values = parse_env_file(path)
         self.assertEqual(values["FRITZ_HOST"], "192.168.178.1")
-        self.assertEqual(values["FRITZ_USER"], "hase10")
+        self.assertEqual(values["FRITZ_USER"], "fbsh")
 
     def test_quotes_comments_and_blanks(self):
         path = self.write(
@@ -123,8 +123,8 @@ class PrecedenceTest(unittest.TestCase):
 
     def test_permissive_switch_allows_shared_file(self):
         self.env_file.chmod(0o644)
-        os.environ["HASE10_ENV_PERMISSIVE"] = "1"
-        self.addCleanup(os.environ.pop, "HASE10_ENV_PERMISSIVE", None)
+        os.environ["FBSH_ENV_PERMISSIVE"] = "1"
+        self.addCleanup(os.environ.pop, "FBSH_ENV_PERMISSIVE", None)
         settings = Settings.load(env_file=str(self.env_file))
         self.assertEqual(settings.password, "file" + "pw")
 

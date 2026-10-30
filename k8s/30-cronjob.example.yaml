@@ -3,8 +3,8 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: hase10-snapshot
-  namespace: hase10
+  name: fbsh-snapshot
+  namespace: fbsh
 spec:
   schedule: "*/15 * * * *"
   concurrencyPolicy: Forbid
@@ -20,11 +20,11 @@ spec:
             runAsUser: 10001
           containers:
             - name: snapshot
-              image: inkassodeppen/hase10smarthome:0.1.0
+              image: inkassodeppen/fbsh:0.1.0
               args: ["devices", "--json"]
               envFrom:
                 - secretRef:
-                    name: hase10-env
+                    name: fbsh-env
               resources:
                 requests: {cpu: 10m, memory: 64Mi}
                 limits: {memory: 128Mi}

@@ -191,12 +191,50 @@ class Device:
             return "temperature-sensor"
         return "device"
 
+    @property
+    def capabilities(self) -> list[str]:
+        """What this device can do and which values it can deliver."""
+        caps: list[str] = []
+        if self.is_switchable:
+            caps.append("switch")
+        if self.is_thermostat:
+            caps.append("thermostat")
+        if self.is_blind:
+            caps.append("blind")
+        if self.has(BIT_LIGHT) and not self.is_switchable:
+            caps.append("light")
+        if self.has(BIT_LEVEL):
+            caps.append("level")
+        if self.has(BIT_COLOR):
+            caps.append("color")
+        if self.has_power_meter:
+            caps.append("power")
+        if self.has_temperature_sensor or self.is_thermostat:
+            caps.append("temperature")
+        if self.has(BIT_HUMIDITY):
+            caps.append("humidity")
+        if self.has(BIT_ALARM):
+            caps.append("alarm")
+        if self.has(BIT_BUTTON):
+            caps.append("button")
+        has_battery = (
+            self.battery is not None
+            or self.battery_low is not None
+            or (self.thermostat is not None
+                and (self.thermostat.battery is not None
+                     or self.thermostat.battery_low is not None))
+        )
+        if has_battery:
+            caps.append("battery")
+        return caps
+
     # -- output --------------------------------------------------------------
     def summary(self) -> dict:
         data = {
             "ain": self.ain,
             "name": self.name,
             "kind": self.kind,
+            "capabilities": self.capabilities,
             "present": self.present,
             "product": self.productname,
         }
