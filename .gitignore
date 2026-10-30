@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
+*.log
+
+# credentials never belong in git
+private/
+credentials
+.env
