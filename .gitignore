@@ -4,7 +4,8 @@ __pycache__/
 .idea/
 *.log
 
-# credentials never belong in git
-private/
+# credentials never belong in git - but the folder itself is useful on clone
+private/*
+!private/.gitkeep
 credentials
 .env
