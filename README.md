@@ -80,7 +80,7 @@ All secrets live in `private/.env`, which is gitignored and must be mode `600`:
 
 ```
 FRITZ_HOST=192.168.178.1
-FRITZ_USER=hase10
+FRITZ_USER=example_user
 FRITZ_PASSWORD=change-me
 ```
 
@@ -201,7 +201,7 @@ For repeated access keep one session and client:
 ```python
 from fbsh import Aha, Session
 
-aha = Aha(Session(host="fritz.box", user="hase10", password="change-me"))
+aha = Aha(Session(host="fritz.box", user="example_user", password="change-me"))
 
 devices = aha.device_list()
 thermostat = aha.device("08761 1048079")

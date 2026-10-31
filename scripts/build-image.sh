@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build-image.sh - build the hase10 image for a Raspberry Pi (and amd64).
+# build-image.sh - build the fbsh image for a Raspberry Pi (and amd64).
 #
 #   ./scripts/build-image.sh                    # all platforms, local only
 #   ./scripts/build-image.sh --load             # single platform into the local store

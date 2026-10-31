@@ -23,21 +23,21 @@ class ParseEnvFileTest(unittest.TestCase):
         return path
 
     def test_simple_values(self):
-        path = self.write("FRITZ_HOST=192.168.178.1\nFRITZ_USER=fbsh\n")
+        path = self.write("FRITZ_HOST=192.168.178.1\nFRITZ_USER=example_user\n")
         values = parse_env_file(path)
         self.assertEqual(values["FRITZ_HOST"], "192.168.178.1")
-        self.assertEqual(values["FRITZ_USER"], "fbsh")
+        self.assertEqual(values["FRITZ_USER"], "example_user")
 
     def test_quotes_comments_and_blanks(self):
         path = self.write(
             "# a comment\n"
             "\n"
-            "export FRITZ_USER='hase 10'\n"
+            "export FRITZ_USER='example user'\n"
             'FRITZ_PASSWORD="p@ss #word"\n'
             "FRITZ_HOST=fritz.box  # trailing comment\n"
         )
         values = parse_env_file(path)
-        self.assertEqual(values["FRITZ_USER"], "hase 10")
+        self.assertEqual(values["FRITZ_USER"], "example user")
         self.assertEqual(values["FRITZ_PASSWORD"], "p@ss #word", "quoted # is not a comment")
         self.assertEqual(values["FRITZ_HOST"], "fritz.box")
 

@@ -11,10 +11,10 @@ from tests.mock_fritz import MockBox
 
 class SessionTest(unittest.TestCase):
     def setUp(self):
-        self.box = MockBox(password="geheim", user="fbsh").start()
+        self.box = MockBox(password="geheim", user="example_user").start()
         self.addCleanup(self.box.stop)
 
-    def session(self, password="geheim", user="fbsh"):
+    def session(self, password="geheim", user="example_user"):
         return Session(host="127.0.0.1", port=self.box.port, password=password, user=user, timeout=5)
 
     def test_pbkdf2_login(self):

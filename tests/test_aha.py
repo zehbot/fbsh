@@ -23,7 +23,7 @@ class AhaTest(unittest.TestCase):
         self.box = MockBox().start()
         self.addCleanup(self.box.stop)
         session = Session(host="127.0.0.1", port=self.box.port,
-                          password="geheim", user="fbsh", timeout=5)
+                          password="geheim", user="example_user", timeout=5)
         self.aha = Aha(session)
 
     def test_device_list(self):
@@ -89,7 +89,7 @@ class CliTest(unittest.TestCase):
         self.connection = [
             "--host", "127.0.0.1",
             "--port", str(self.box.port),
-            "--user", "fbsh",
+            "--user", "example_user",
             "--password", "geheim",
             "--env-file", "/nonexistent",
         ]
@@ -140,7 +140,7 @@ class CliTest(unittest.TestCase):
 
     def aha_state(self):
         session = Session(host="127.0.0.1", port=self.box.port,
-                          password="geheim", user="fbsh", timeout=5)
+                          password="geheim", user="example_user", timeout=5)
         return Aha(session).switch_state(PLUG)
 
     def test_thermostat_set(self):
