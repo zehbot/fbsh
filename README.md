@@ -101,7 +101,7 @@ pipes straight into `jq` or a log line.
 in that order of increasing precedence:
 
 ```
-FRITZ_HOST=192.168.178.1
+FRITZ_HOST=192.0.2.10
 FRITZ_USER=example_user
 FRITZ_PASSWORD=change-me
 ```
