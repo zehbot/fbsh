@@ -155,6 +155,14 @@ which is the safe way to check a rename before it creates a new series.
 
 ## Container
 
+A public image exists for amd64 and arm64:
+
+```bash
+docker run --rm --env-file private/.env inkassodeppen/fbsh:0.1.0 status
+```
+
+Building it yourself takes one `COPY`:
+
 ```bash
 docker build -t fbsh:0.1.0 .
 docker run --rm --env-file private/.env fbsh:0.1.0 status

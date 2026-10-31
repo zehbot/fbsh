@@ -49,9 +49,42 @@ Anwendungen zulassen* enabled — same as for local use, see the README.
 
 ---
 
-## 3. Build the image
+## 3. Get the image
 
-### 3.1 Natively on the Pi (recommended)
+### 3.1 Already published (default)
+
+`inkassodeppen/fbsh:0.1.0` is public on Docker Hub as a manifest list:
+
+```
+inkassodeppen/fbsh:0.1.0   (also :latest)
+├── linux/amd64
+└── linux/arm64             ← Raspberry Pi 4/5 with 64-bit OS / k3s
+digest sha256:f229d1fddf7d056220487e366cf33d97aa17e7ec0b874ccc17292586ed11d6aa
+```
+
+Nothing to build — skip to step 4. To pin what runs instead of following the
+tag:
+
+```bash
+image: inkassodeppen/fbsh@sha256:f229d1fddf7d056220487e366cf33d97aa17e7ec0b874ccc17292586ed11d6aa
+```
+
+The other routes below exist for the cases where you change the code, use a
+private registry, or run a cluster without one.
+
+### 3.2 Build it yourself, multi-arch
+
+Same result as the published image, from your own source:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+  -t registry.example.org/fbsh:0.1.0 --push .
+```
+
+Note `--provenance=false`: the provenance attestation otherwise adds an extra
+manifest entry that some `imagetools inspect` output and older runtimes trip over.
+
+### 3.3 Build natively on the Pi (fast local loop)
 
 ```bash
 git clone git@github.com:zehbot/fbsh.git
@@ -61,17 +94,7 @@ docker build -t fbsh:0.1.0 .
 
 Takes seconds, the image is a `python:3.12-slim` plus one file (~145 MB).
 
-### 3.2 Multi-arch on a workstation
-
-```bash
-docker run --privileged --rm tonistiigi/binfmt --install arm64,arm
-docker buildx build --platform linux/arm64,linux/arm/v7 \
-  -t registry.example.org/fbsh:0.1.0 --push .
-```
-
-Use `linux/arm/v7` only if the Pi runs a 32-bit OS.
-
-### 3.3 Without a registry
+### 3.4 Without a registry
 
 A homelab cluster can import the image directly — no registry, no pull secret:
 
@@ -136,12 +159,17 @@ kubectl -n fbsh get secret fbsh-env -o jsonpath='{.data}' | jq -r 'keys[]'
 
 ## 5. Apply the CronJob
 
-Now that namespace and Secret exist, apply the schedule. Adjust the image
-reference to your registry or local tag first:
+Now that namespace and Secret exist, apply the schedule. The manifest already
+points at the published image, so nothing needs editing:
+
+```bash
+kubectl apply -f k8s/cronjob.yaml
+```
+
+Only if you use your own registry or a locally imported image:
 
 ```bash
 sed -i 's|image: inkassodeppen/fbsh:0.1.0|image: registry.example.org/fbsh:0.1.0|' k8s/cronjob.yaml
-kubectl apply -f k8s/cronjob.yaml
 ```
 
 ```bash
