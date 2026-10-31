@@ -155,54 +155,37 @@ which is the safe way to check a rename before it creates a new series.
 
 ## Container
 
-A public image exists for amd64 and arm64:
+Three artefacts, all optional:
+
+| What | Where |
+|---|---|
+| public image `inkassodeppen/fbsh:0.1.0` (amd64 + arm64) | Docker Hub |
+| `Dockerfile` — `python:3.12-slim` plus one `COPY`, no build step | repo root |
+| `k8s/cronjob.yaml` — namespace + CronJob, `collect` every 10 minutes | `k8s/` |
 
 ```bash
 docker run --rm --env-file private/.env inkassodeppen/fbsh:0.1.0 status
+docker build -t fbsh:0.1.0 .                 # build it yourself instead
+kubectl apply -f k8s/cronjob.yaml            # scheduled collection in k3s
 ```
 
-Building it yourself takes one `COPY`:
+The image runs as uid 10001, needs no writable filesystem, and `private/` never
+enters a layer — the container reads its configuration from environment
+variables, which is what the Secret provides.
 
-```bash
-docker build -t fbsh:0.1.0 .
-docker run --rm --env-file private/.env fbsh:0.1.0 status
-```
+Everything beyond that is deliberately **not** repeated here. Building and
+publishing for ARM, registries, the Secret, CronJob details, TLS, updates and
+troubleshooting are in **[container_howto.md](container_howto.md)**:
 
-The image is `python:3.12-slim` with one file copied in, runs as uid 10001 and
-needs no writable filesystem. `private/` never enters a layer.
-
-### Raspberry Pi
-
-`python:3.12-slim` exists for `linux/arm64/v8` and `linux/arm/v7`:
-
-```bash
-# on the Pi itself
-docker build -t fbsh:0.1.0 .
-
-# from an x86 workstation
-docker run --privileged --rm tonistiigi/binfmt --install arm64,arm
-docker buildx build --platform linux/arm64,linux/arm/v7 -t fbsh:0.1.0 --push .
-```
-
-### k3s: scheduled snapshots
-
-`k8s/cronjob.yaml` runs `collect` every 10 minutes — one pod per run, no long
-running process, `concurrencyPolicy: Forbid` so two pollers never overlap.
-The full walkthrough, from building the image to troubleshooting, is in
-**[how_to_deploy_k3s.md](how_to_deploy_k3s.md)**.
-
-```bash
-kubectl apply -f k8s/cronjob.yaml
-
-kubectl -n fbsh create secret generic fbsh-env \
-  --from-env-file=private/.env --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl -n fbsh create job --from=cronjob/fbsh-status fbsh-now   # run once
-kubectl -n fbsh logs -l job-name=fbsh-now
-```
-
-The pod runs non-root with all capabilities dropped and a read-only root
-filesystem; credentials arrive as environment variables from the Secret.
+| Question | Section |
+|---|---|
+| which image, and how do I build one myself? | [§3 Get the image](container_howto.md#3-get-the-image) |
+| how do the credentials get into the pod? | [§4 Create the Secret](container_howto.md#4-create-the-secret) |
+| how do I schedule and run it? | [§5](container_howto.md#5-apply-the-cronjob) / [§6](container_howto.md#6-first-run) |
+| is the data arriving? | [§7 Verify in InfluxDB](container_howto.md#7-verify-in-influxdb) |
+| DNS, LAN, TLS | [§8 Networking](container_howto.md#8-networking) |
+| change the interval, roll out a new version | [§9 Day-2 operations](container_howto.md#9-day-2-operations) |
+| it fails — what now? | [§10 Troubleshooting](container_howto.md#10-troubleshooting) |
 
 ## Tests
 

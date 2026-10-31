@@ -1,10 +1,16 @@
-# Deploying fbsh on k3s
+# Running fbsh in containers
 
-`fbsh.py` runs as a Kubernetes **CronJob**: every ten minutes a pod starts,
-reads all devices from the FRITZ!Box, writes one point per device to InfluxDB and
-exits. No long running process, no state in the cluster, no persistent volume.
+`fbsh.py` is one file without dependencies, so its image is a single `COPY` on
+top of `python:3.12-slim`. This document covers everything around that image:
+building and publishing it, choosing a registry, running it on a Raspberry Pi,
+scheduling it as a Kubernetes CronJob, and keeping it running.
 
-This guide covers a Raspberry Pi running k3s, but nothing is Pi-specific.
+In the cluster it runs as a **CronJob**: every ten minutes a pod starts, reads
+all devices from the FRITZ!Box, writes one point per device to InfluxDB and
+exits — no long running process, no state, no persistent volume.
+
+Nothing here is k3s-specific except the manifest in `k8s/`. The same image runs
+with `docker run` on a laptop, under Docker Compose, or on any other orchestrator.
 
 ```
 ┌──────────────┐   AHA-HTTP    ┌─────────────────┐   line protocol   ┌───────────┐
@@ -35,14 +41,17 @@ Properties of the pod:
 
 ## 2. Prerequisites
 
+Sections 3 and 8 apply to any container runtime; sections 4–7 and 9–11 are the
+Kubernetes path. Docker alone is enough for the first ones.
+
 | Requirement | Check |
 |---|---|
+| Docker (for building and for `docker run`) | `docker buildx version` |
 | k3s running, `kubectl` configured | `kubectl get nodes` |
 | containerd reachable on the node | `sudo k3s ctr version` |
-| Docker with buildx on some machine | `docker buildx version` |
-| FRITZ!Box reachable from the node | `curl -s -o /dev/null -w '%{http_code}\n' http://192.0.2.10/` |
-| InfluxDB 2.x reachable from the node | `curl -s http://192.0.2.20:8086/health` |
-| InfluxDB write token and bucket | see step 2 |
+| FRITZ!Box reachable from the container host | `curl -s -o /dev/null -w '%{http_code}\n' http://192.0.2.10/` |
+| InfluxDB 2.x reachable from the container host | `curl -s http://192.0.2.20:8086/health` |
+| InfluxDB write token and bucket | see step 4 |
 
 The FRITZ!Box needs a user with the **Smart Home** right and *Zugriff für
 Anwendungen zulassen* enabled — same as for local use, see the README.
@@ -62,8 +71,14 @@ inkassodeppen/fbsh:0.1.0   (also :latest)
 digest sha256:f229d1fddf7d056220487e366cf33d97aa17e7ec0b874ccc17292586ed11d6aa
 ```
 
-Nothing to build — skip to step 4. To pin what runs instead of following the
-tag:
+Nothing to build. Run it directly:
+
+```bash
+docker run --rm --env-file private/.env inkassodeppen/fbsh:0.1.0 status
+```
+
+or continue with step 4 for the Kubernetes path. To pin what runs instead of
+following the tag:
 
 ```bash
 image: inkassodeppen/fbsh@sha256:f229d1fddf7d056220487e366cf33d97aa17e7ec0b874ccc17292586ed11d6aa
