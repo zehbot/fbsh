@@ -47,12 +47,15 @@ and reads `private/.env` from the current directory.
 
 | Command | Purpose |
 |---|---|
-| `python fbsh.py devices [--ain AIN] [--json]` | inventory: name, kind, capabilities |
-| `python fbsh.py status [--ain AIN] [--json]` | current values per device |
-| `python fbsh.py switch AIN on\|off\|toggle\|state` | sockets and lights |
-| `python fbsh.py thermostat AIN [--set C] [--on] [--off]` | radiator setpoint, 8–28 °C |
+| `python fbsh.py devices [--ain AIN\|NAME] [--json]` | inventory: name, kind, capabilities |
+| `python fbsh.py status [--ain AIN\|NAME] [--json]` | current values per device |
+| `python fbsh.py switch AIN\|NAME on\|off\|toggle\|state` | sockets and lights |
+| `python fbsh.py thermostat AIN\|NAME [--set C] [--on] [--off]` | radiator setpoint, 8–28 °C |
 | `python fbsh.py collect [--dry-run]` | read all devices and write them to InfluxDB |
 | `python fbsh.py raw SWITCHCMD [--ain AIN] [--param K=V]` | any AHA command |
+
+Devices can be addressed by **AIN or by name** (`--ain Entree` and
+`--ain "08761 1048079"` both work, case does not matter).
 
 Connection options on every command: `--host`, `--user`, `--password`,
 `--scheme`, `--port`, `--verify-tls`, `--ca-file`, `--env-file`, `--timeout`,

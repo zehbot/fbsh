@@ -207,11 +207,18 @@ class Box:
     def devices(self) -> list[dict]:
         return parse_devices(self.call("getdevicelistinfos"))
 
-    def device(self, ain: str) -> dict:
-        for device in self.devices():
-            if device["ain"].replace(" ", "").lower() == ain.replace(" ", "").lower():
+    def device(self, key: str) -> dict:
+        """Find a device by AIN or by name - both are accepted everywhere."""
+        devices = self.devices()
+        wanted = key.replace(" ", "").lower()
+        for device in devices:
+            if device["ain"].replace(" ", "").lower() == wanted:
                 return device
-        raise RuntimeError(f"no device with AIN {ain}")
+        for device in devices:
+            if device["name"].lower() == key.lower():
+                return device
+        known = ", ".join(sorted(d["name"] or d["ain"] for d in devices))
+        raise RuntimeError(f"no device with AIN or name {key!r}; known: {known}")
 
     def switch(self, ain: str, action: str) -> bool | None:
         if action == "state":
@@ -516,16 +523,16 @@ def build_parser() -> argparse.ArgumentParser:
                             ("status", "list devices with current values")):
         cmd = sub.add_parser(name, help=help_text)
         add_connection(cmd)
-        cmd.add_argument("--ain", help="only this device")
+        cmd.add_argument("--ain", metavar="AIN|NAME", help="only this device")
 
     switch = sub.add_parser("switch", help="switch a socket or light")
     add_connection(switch)
-    switch.add_argument("ain")
+    switch.add_argument("ain", metavar="AIN|NAME")
     switch.add_argument("action", choices=["on", "off", "toggle", "state"])
 
     thermostat = sub.add_parser("thermostat", help="read or set a radiator thermostat")
     add_connection(thermostat)
-    thermostat.add_argument("ain")
+    thermostat.add_argument("ain", metavar="AIN|NAME")
     thermostat.add_argument("--set", dest="setpoint", type=float, metavar="C")
     thermostat.add_argument("--on", action="store_true")
     thermostat.add_argument("--off", action="store_true")

@@ -287,7 +287,18 @@ class FbshTest(unittest.TestCase):
     def test_unknown_device(self):
         code, _, err = self.run_cli("switch", "00:00:00-000", "on")
         self.assertEqual(code, 1)
-        self.assertIn("no device with AIN", err)
+        self.assertIn("no device with AIN or name", err)
+
+    def test_device_can_be_addressed_by_name(self):
+        code, out, _ = self.run_cli("switch", "plug", "off")
+        self.assertEqual(code, 0)
+        self.assertIn("off", out)
+        self.assertEqual(self.box.devices[PLUG]["state"], 0)
+
+    def test_device_lookup_is_case_insensitive(self):
+        code, out, _ = self.run_cli("status", "--ain", "THERMOSTAT")
+        self.assertEqual(code, 0)
+        self.assertIn("21.0", out)
 
     def test_session_is_renewed_after_403(self):
         code, _, _ = self.run_cli("devices")
