@@ -117,7 +117,8 @@ FRITZ_PASSWORD=change-me
 | `FRITZ_CA_FILE` | PEM of the box certificate | — |
 | `INFLUX_URL` | InfluxDB 2.x base URL | — |
 | `INFLUX_ORG` | organisation | — |
-| `INFLUX_BUCKET` | target bucket | — |
+| `INFLUX_BUCKET` | target bucket for temperature and battery | — |
+| `INFLUX_BUCKET_CONSUMPTION` | optional second bucket for power | — |
 | `INFLUX_TOKEN` | write token | — |
 | `INFLUX_INSECURE` | `1` to skip TLS verification | off |
 
@@ -141,6 +142,9 @@ wintergarten01 power=4.0 1793453389773733213
 ```
 
 - measurement = the device name exactly as the FRITZ!Box reports it
+- with `INFLUX_BUCKET_CONSUMPTION` set, a second write goes to that bucket with
+  `consumption=<watts>` on every metered socket — both writes come from the same
+  read, so the values always belong together
 - `temp` in °C, `power` in W, `battery` in percent — always floats, because a
   series' field type is immutable in InfluxDB
 - one point per device per run, timestamp in nanoseconds

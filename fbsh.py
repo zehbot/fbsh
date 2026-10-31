@@ -97,6 +97,7 @@ def settings(cli) -> dict:
         "influx_url": pick("influx_url", "INFLUX_URL"),
         "influx_org": pick("influx_org", "INFLUX_ORG"),
         "influx_bucket": pick("influx_bucket", "INFLUX_BUCKET"),
+        "influx_bucket_consumption": pick("influx_bucket_consumption", "INFLUX_BUCKET_CONSUMPTION"),
         "influx_token": pick("influx_token", "INFLUX_TOKEN"),
         "influx_insecure": pick("influx_insecure", "INFLUX_INSECURE"),
     }
@@ -411,9 +412,25 @@ def influx_lines(devices: list[dict], timestamp_ns: int) -> list[str]:
     return lines
 
 
-def influx_write(cfg: dict, body: str) -> tuple[int, str]:
+def consumption_lines(devices: list[dict], timestamp_ns: int) -> list[str]:
+    """Power in watts as field 'consumption' - the shape the second bucket uses."""
+    lines = []
+    for device in devices:
+        if device["kind"] == "group":
+            continue
+        meter = device.get("power") or {}
+        if meter.get("watts") is None:
+            continue
+        measurement = device["name"] or device["ain"]
+        measurement = measurement.replace(",", "\\,").replace(" ", "\\ ")
+        lines.append(f"{measurement} consumption={repr(float(meter['watts']))} {timestamp_ns}")
+    return lines
+
+
+def influx_write(cfg: dict, body: str, bucket: str | None = None) -> tuple[int, str]:
     url = f"{cfg['influx_url'].rstrip('/')}/api/v2/write"
-    query = urllib.parse.urlencode({"org": cfg["influx_org"], "bucket": cfg["influx_bucket"],
+    query = urllib.parse.urlencode({"org": cfg["influx_org"],
+                                    "bucket": bucket or cfg["influx_bucket"],
                                     "precision": "ns"})
     ctx = ssl.create_default_context()
     if str(cfg.get("influx_insecure") or "").lower() in ("1", "true", "yes"):
@@ -441,23 +458,33 @@ def collect(args, box: Box, cfg: dict) -> int:
     if not args.dry_run and not cfg["influx_url"].startswith(("http://", "https://")):
         raise ConfigError(f"INFLUX_URL must start with http:// or https://, not {cfg['influx_url']!r}")
 
-    lines = influx_lines(box.devices(), time.time_ns())
-    if not lines:
+    devices = box.devices()
+    stamp = time.time_ns()
+    batches = [(cfg["influx_bucket"], influx_lines(devices, stamp))]
+    if cfg.get("influx_bucket_consumption"):
+        batches.append((cfg["influx_bucket_consumption"], consumption_lines(devices, stamp)))
+
+    if not batches[0][1]:
         raise RuntimeError("no device delivered a value")
-    body = "\n".join(lines) + "\n"
 
     if args.dry_run:
-        print(body, end="")
-        note = f"# {len(lines)} lines, nothing written"
+        for bucket, lines in batches:
+            print(f"# bucket {bucket}: {len(lines)} lines", file=sys.stderr)
+            print("\n".join(lines), flush=True)
+        note = "nothing written"
         if missing:
             note += f" (config incomplete: {', '.join(missing)})"
-        print(note, file=sys.stderr)
+        print(f"# {note}", file=sys.stderr)
         return 0
 
-    status, text = influx_write(cfg, body)
-    if status not in (200, 204):
-        raise RuntimeError(f"influx rejected the write: HTTP {status} {text.strip()[:200]}")
-    print(f"wrote {len(lines)} points to {cfg['influx_bucket']}")
+    for bucket, lines in batches:
+        if not lines:
+            continue
+        status, text = influx_write(cfg, "\n".join(lines) + "\n", bucket)
+        if status not in (200, 204):
+            raise RuntimeError(f"influx rejected the write to {bucket}: HTTP {status} "
+                               f"{text.strip()[:200]}")
+        print(f"wrote {len(lines)} points to {bucket}")
     return 0
 
 

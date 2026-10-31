@@ -324,9 +324,10 @@ class FbshTest(unittest.TestCase):
 class Influx:
     """Captures POST /api/v2/write so the line protocol can be inspected."""
 
-    def __init__(self, status=204, text=""):
+    def __init__(self, status=204, text="", fail_bucket=None):
         self.status = status
         self.text = text
+        self.fail_bucket = fail_bucket      # fail only this bucket, others succeed
         self.requests = []
 
     def start(self):
@@ -344,8 +345,10 @@ class Influx:
                     "ctype": self.headers.get("Content-Type", ""),
                     "body": self.rfile.read(length).decode(),
                 })
-                data = sink.text.encode()
-                self.send_response(sink.status)
+                failing = bool(sink.fail_bucket) and f"bucket={sink.fail_bucket}" in self.path
+                status = 404 if failing else sink.status
+                data = sink.text.encode() if (failing or status >= 400) else b""
+                self.send_response(status)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -453,6 +456,46 @@ class CollectTest(unittest.TestCase):
         code, _, err = self.run_cli("collect")
         self.assertEqual(code, 2)
         self.assertIn("INFLUX_BUCKET", err)
+
+    def test_second_bucket_gets_consumption(self):
+        os.environ["INFLUX_BUCKET_CONSUMPTION"] = "consumption"
+        self.addCleanup(os.environ.pop, "INFLUX_BUCKET_CONSUMPTION", None)
+        code, out, _ = self.run_cli("collect")
+        self.assertEqual(code, 0)
+        self.assertIn("wrote 3 points to smarthome", out)
+        self.assertIn("wrote 2 points to consumption", out, "only devices with a meter")
+
+        second = self.influx.requests[1]
+        self.assertIn("bucket=consumption", second["path"])
+        body = second["body"]
+        self.assertIn("plug consumption=12.345", body)
+        self.assertIn("steckdose consumption=5.0", body)
+        self.assertNotIn("thermostat", body, "thermostats measure nothing")
+
+    def test_second_bucket_is_optional(self):
+        code, out, _ = self.run_cli("collect")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.influx.requests), 1, "one write when no second bucket is set")
+
+    def test_dry_run_shows_both_buckets(self):
+        os.environ["INFLUX_BUCKET_CONSUMPTION"] = "consumption"
+        self.addCleanup(os.environ.pop, "INFLUX_BUCKET_CONSUMPTION", None)
+        code, out, err = self.run_cli("collect", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("# bucket smarthome: 3 lines", err)
+        self.assertIn("# bucket consumption: 2 lines", err)
+        self.assertIn("consumption=12.345", out)
+
+    def test_failure_in_second_bucket_is_reported(self):
+        os.environ["INFLUX_BUCKET_CONSUMPTION"] = "consumption"
+        self.addCleanup(os.environ.pop, "INFLUX_BUCKET_CONSUMPTION", None)
+        self.influx.fail_bucket = "consumption"
+        self.influx.text = "bucket not found"
+        code, out, err = self.run_cli("collect")
+        self.assertEqual(code, 1)
+        self.assertIn("wrote 3 points to smarthome", out, "first bucket succeeded")
+        self.assertIn("consumption", err)
+        self.assertIn("HTTP 404", err)
 
     def test_measurement_names_are_the_device_names(self):
         _, out, _ = self.run_cli("collect", "--dry-run")

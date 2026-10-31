@@ -120,6 +120,7 @@ Expected keys:
 ```
 FRITZ_HOST  FRITZ_USER  FRITZ_PASSWORD
 INFLUX_URL  INFLUX_ORG  INFLUX_BUCKET  INFLUX_TOKEN
+INFLUX_BUCKET_CONSUMPTION        (optional, second bucket for power)
 ```
 
 Check the names without revealing the values:
@@ -164,6 +165,7 @@ Expected:
 
 ```
 wrote 17 points to smarthome
+wrote 7 points to smarthome-power     # only with INFLUX_BUCKET_CONSUMPTION
 ```
 
 Then clean up the manual job so it does not linger:
