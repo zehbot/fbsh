@@ -434,6 +434,20 @@ class CollectTest(unittest.TestCase):
         self.assertIn("HTTP 401", err)
         self.assertIn("unauthorized access", err)
 
+    def test_unreachable_influx_is_reported(self):
+        os.environ["INFLUX_URL"] = "http://127.0.0.1:1"      # nothing listens there
+        code, _, err = self.run_cli("collect")
+        self.assertEqual(code, 1)
+        self.assertIn("cannot reach", err)
+        self.assertIn("127.0.0.1", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_url_without_scheme_is_a_usage_error(self):
+        os.environ["INFLUX_URL"] = "influx.example.org:8086"
+        code, _, err = self.run_cli("collect")
+        self.assertEqual(code, 2)
+        self.assertIn("must start with http", err)
+
     def test_missing_config_is_a_usage_error(self):
         os.environ.pop("INFLUX_BUCKET")
         code, _, err = self.run_cli("collect")

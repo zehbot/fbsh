@@ -427,6 +427,9 @@ def influx_write(cfg: dict, body: str) -> tuple[int, str]:
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as err:
         return err.code, err.read().decode("utf-8", "replace")
+    except urllib.error.URLError as err:
+        host = urllib.parse.urlparse(cfg["influx_url"]).hostname or cfg["influx_url"]
+        raise RuntimeError(f"cannot reach {host}: {err.reason}") from err
 
 
 def collect(args, box: Box, cfg: dict) -> int:
@@ -435,6 +438,8 @@ def collect(args, box: Box, cfg: dict) -> int:
                if not cfg.get(key)]
     if missing and not args.dry_run:
         raise ConfigError(f"{', '.join(missing)} not set - add it to private/.env")
+    if not args.dry_run and not cfg["influx_url"].startswith(("http://", "https://")):
+        raise ConfigError(f"INFLUX_URL must start with http:// or https://, not {cfg['influx_url']!r}")
 
     lines = influx_lines(box.devices(), time.time_ns())
     if not lines:
