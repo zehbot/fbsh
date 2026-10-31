@@ -174,8 +174,10 @@ docker buildx build --platform linux/arm64,linux/arm/v7 -t fbsh:0.1.0 --push .
 
 ### k3s: scheduled snapshots
 
-`k8s/cronjob.yaml` runs `status --json` every 15 minutes — one pod per run, no
-long running process, `concurrencyPolicy: Forbid` so two pollers never overlap.
+`k8s/cronjob.yaml` runs `collect` every 10 minutes — one pod per run, no long
+running process, `concurrencyPolicy: Forbid` so two pollers never overlap.
+The full walkthrough, from building the image to troubleshooting, is in
+**[how_to_deploy_k3s.md](how_to_deploy_k3s.md)**.
 
 ```bash
 kubectl apply -f k8s/cronjob.yaml
