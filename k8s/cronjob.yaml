@@ -1,0 +1,43 @@
+# fbsh as a scheduled snapshot: one pod per run, no long running process.
+#
+#   kubectl apply -f k8s/cronjob.yaml
+#   kubectl -n fbsh create secret generic fbsh-env \
+#     --from-env-file=private/.env --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fbsh
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fbsh-status
+  namespace: fbsh
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid          # never two pollers at once
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+          containers:
+            - name: fbsh
+              image: inkassodeppen/fbsh:0.1.0
+              args: ["status", "--json"]
+              envFrom:
+                - secretRef:
+                    name: fbsh-env
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 96Mi}

@@ -2,7 +2,5 @@
 .idea
 .venv
 private/
-tests/
+test_fbsh.py
 __pycache__/
-*.py[cod]
-*.tar.gz
