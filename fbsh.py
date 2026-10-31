@@ -24,6 +24,7 @@ import json
 import os
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -75,7 +76,7 @@ def find_env_file(explicit: str | None) -> Path | None:
 def settings(cli) -> dict:
     path = find_env_file(getattr(cli, "env_file", None))
     if path is not None and not os.access(path, os.R_OK):
-        raise SystemExit(f"error: cannot read {path}")
+        raise ConfigError(f"cannot read {path}")
     values = parse_env(path) if path else {}
 
     def pick(attr: str, key: str, default=None):
@@ -93,10 +94,15 @@ def settings(cli) -> dict:
         "verify": pick("verify_tls", "FRITZ_VERIFY_TLS"),
         "ca": pick("ca_file", "FRITZ_CA_FILE"),
         "timeout": getattr(cli, "timeout", 10.0),
+        "influx_url": pick("influx_url", "INFLUX_URL"),
+        "influx_org": pick("influx_org", "INFLUX_ORG"),
+        "influx_bucket": pick("influx_bucket", "INFLUX_BUCKET"),
+        "influx_token": pick("influx_token", "INFLUX_TOKEN"),
+        "influx_insecure": pick("influx_insecure", "INFLUX_INSECURE"),
     }
     if not cfg["pw"]:
-        raise SystemExit(
-            "error: no credentials - set FRITZ_PASSWORD, use --password, "
+        raise ConfigError(
+            "no credentials - set FRITZ_PASSWORD, use --password, "
             "or copy .env.example to private/.env"
         )
     if cfg["port"]:
@@ -106,6 +112,10 @@ def settings(cli) -> dict:
 
 # --- box access --------------------------------------------------------------------
 class LoginError(Exception):
+    pass
+
+
+class ConfigError(Exception):
     pass
 
 
@@ -364,6 +374,81 @@ def capabilities(device: dict) -> list[str]:
     return caps
 
 
+# --- influxdb ----------------------------------------------------------------------
+def influx_lines(devices: list[dict], timestamp_ns: int) -> list[str]:
+    """Line protocol for every non-group device that has at least one value."""
+    lines = []
+    for device in devices:
+        if device["kind"] == "group":
+            continue                      # aggregates duplicate their members
+        fields = []
+        temp = device.get("temperature_c")
+        thermostat = device.get("thermostat") or {}
+        if temp is None:
+            temp = thermostat.get("actual_c")
+        if temp is not None:
+            fields.append(f"temp={repr(float(temp))}")
+        meter = device.get("power") or {}
+        if meter.get("watts") is not None:
+            fields.append(f"power={repr(float(meter['watts']))}")
+        battery = device.get("battery")
+        if battery is None:
+            battery = thermostat.get("battery")
+        if battery is not None:
+            fields.append(f"battery={repr(float(battery))}")
+        if not fields:
+            continue
+        measurement = device["name"] or device["ain"]
+        measurement = measurement.replace(",", "\\,").replace(" ", "\\ ")
+        lines.append(f"{measurement} {','.join(fields)} {timestamp_ns}")
+    return lines
+
+
+def influx_write(cfg: dict, body: str) -> tuple[int, str]:
+    url = f"{cfg['influx_url'].rstrip('/')}/api/v2/write"
+    query = urllib.parse.urlencode({"org": cfg["influx_org"], "bucket": cfg["influx_bucket"],
+                                    "precision": "ns"})
+    ctx = ssl.create_default_context()
+    if str(cfg.get("influx_insecure") or "").lower() in ("1", "true", "yes"):
+        ctx = ssl._create_unverified_context()  # noqa: SLF001
+    req = urllib.request.Request(
+        f"{url}?{query}", data=body.encode(), method="POST",
+        headers={"Authorization": f"Token {cfg['influx_token']}",
+                 "Content-Type": "text/plain; charset=utf-8"})
+    try:
+        with urllib.request.urlopen(req, timeout=cfg["timeout"], context=ctx) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as err:
+        return err.code, err.read().decode("utf-8", "replace")
+
+
+def collect(args, box: Box, cfg: dict) -> int:
+    missing = [name for key, name in (("influx_url", "INFLUX_URL"), ("influx_org", "INFLUX_ORG"),
+                                      ("influx_bucket", "INFLUX_BUCKET"), ("influx_token", "INFLUX_TOKEN"))
+               if not cfg.get(key)]
+    if missing and not args.dry_run:
+        raise ConfigError(f"{', '.join(missing)} not set - add it to private/.env")
+
+    lines = influx_lines(box.devices(), time.time_ns())
+    if not lines:
+        raise RuntimeError("no device delivered a value")
+    body = "\n".join(lines) + "\n"
+
+    if args.dry_run:
+        print(body, end="")
+        note = f"# {len(lines)} lines, nothing written"
+        if missing:
+            note += f" (config incomplete: {', '.join(missing)})"
+        print(note, file=sys.stderr)
+        return 0
+
+    status, text = influx_write(cfg, body)
+    if status not in (200, 204):
+        raise RuntimeError(f"influx rejected the write: HTTP {status} {text.strip()[:200]}")
+    print(f"wrote {len(lines)} points to {cfg['influx_bucket']}")
+    return 0
+
+
 # --- output ------------------------------------------------------------------------
 def table_inventory(devices: list[dict]) -> None:
     print(f"{'NAME':<26}  {'KIND':<18}  DATA")
@@ -445,6 +530,11 @@ def build_parser() -> argparse.ArgumentParser:
     thermostat.add_argument("--on", action="store_true")
     thermostat.add_argument("--off", action="store_true")
 
+    collect_cmd = sub.add_parser("collect", help="read all devices and write them to InfluxDB")
+    add_connection(collect_cmd)
+    collect_cmd.add_argument("--dry-run", action="store_true",
+                             help="print the line protocol instead of writing")
+
     raw = sub.add_parser("raw", help="send a raw switchcmd")
     add_connection(raw)
     raw.add_argument("switchcmd")
@@ -511,6 +601,9 @@ def run(args) -> int:
             print(f"{device['name'] or device['ain']}: set {setpoint}, actual {actual}")
         return 0
 
+    if args.command == "collect":
+        return collect(args, box, settings(args))
+
     if args.command == "raw":
         params = dict(item.split("=", 1) for item in args.param if "=" in item)
         print(box.call(args.switchcmd, args.ain, **params))
@@ -523,6 +616,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return run(args)
+    except ConfigError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
     except LoginError as err:
         print(f"error: {err}", file=sys.stderr)
         return 3

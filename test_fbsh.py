@@ -43,6 +43,14 @@ class Box:
                 "name": "thermostat", "mask": 320, "product": "FRITZ!DECT 301",
                 "tist": 42, "tsoll": 42, "battery": 80,
             },
+            "08761 5550000": {
+                "name": "steckdose", "mask": 640, "product": "FRITZ!DECT 200",
+                "power": 5000, "energy": 12, "voltage": 230000, "state": 0,
+            },
+            "65:3A:18-900": {
+                "name": "gruppe", "mask": 64, "product": "", "group": True,
+                "tist": 42, "tsoll": 42, "battery": 0,
+            },
         }
 
     def start(self):
@@ -111,8 +119,8 @@ class Box:
 
     # -- commands ------------------------------------------------------------
     def device_xml(self, ain, d):
-        tag = "<device "
-        parts = [f'{tag}identifier="{ain}" id="1" functionbitmask="{d["mask"]}" '
+        tag = "group" if d.get("group") else "device"
+        parts = [f'<{tag} identifier="{ain}" id="1" functionbitmask="{d["mask"]}" '
                  f'fwversion="1.0" manufacturer="AVM" productname="{d["product"]}">',
                  f'<present>1</present><name>{d["name"]}</name>']
         if "state" in d:
@@ -129,7 +137,7 @@ class Box:
                          f'<komfort>44</komfort><absenk>34</absenk>'
                          f'<battery>{d["battery"]}</battery><batterylow>0</batterylow>'
                          "<windowopenactiv>0</windowopenactiv><errorcode>0</errorcode></hkr>")
-        parts.append("</device>")
+        parts.append(f"</{tag}>")
         return "".join(parts)
 
     def command(self, query):
@@ -298,8 +306,133 @@ class FbshTest(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             devices = box.devices()
-        self.assertEqual(len(devices), 2)
+        self.assertEqual(len(devices), 4)
         return 0, out.getvalue(), ""
+
+
+class Influx:
+    """Captures POST /api/v2/write so the line protocol can be inspected."""
+
+    def __init__(self, status=204, text=""):
+        self.status = status
+        self.text = text
+        self.requests = []
+
+    def start(self):
+        sink = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("Content-Length") or 0)
+                sink.requests.append({
+                    "path": self.path,
+                    "auth": self.headers.get("Authorization", ""),
+                    "ctype": self.headers.get("Content-Type", ""),
+                    "body": self.rfile.read(length).decode(),
+                })
+                data = sink.text.encode()
+                self.send_response(sink.status)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return self
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server.server_address[1]}"
+
+
+class CollectTest(unittest.TestCase):
+    def setUp(self):
+        self.box = Box().start()
+        self.addCleanup(self.box.stop)
+        self.influx = Influx().start()
+        self.addCleanup(self.influx.stop)
+        for key, value in (("INFLUX_URL", self.influx.url), ("INFLUX_ORG", "example_org"),
+                           ("INFLUX_BUCKET", "smarthome"), ("INFLUX_TOKEN", "test-token")):
+            os.environ[key] = value
+            self.addCleanup(os.environ.pop, key, None)
+
+    def args(self, *argv):
+        return list(argv) + ["--host", "127.0.0.1", "--port", str(self.box.port),
+                             "--user", self.box.user, "--password", self.box.pw,
+                             "--env-file", "/nonexistent"]
+
+    def run_cli(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = fbsh.main(self.args(*argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_dry_run_writes_nothing(self):
+        code, out, err = self.run_cli("collect", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("temp=", out)
+        self.assertEqual(self.influx.requests, [], "dry run must not post")
+        self.assertIn("nothing written", err)
+
+    def test_line_protocol_shape(self):
+        self.run_cli("collect", "--dry-run")
+        _, out, _ = self.run_cli("collect", "--dry-run")
+        lines = [line for line in out.splitlines() if line and not line.startswith("#")]
+        by_name = {line.split(" ")[0]: line for line in lines}
+        self.assertEqual(len(lines), 3, "plug, thermostat and socket - not the group")
+        self.assertNotIn("gruppe", by_name)
+
+        plug = by_name["plug"]
+        self.assertIn("temp=28.5", plug)
+        self.assertIn("power=12.345", plug)
+        self.assertRegex(plug, r" \d{19}$", "timestamp in nanoseconds")
+
+        thermostat = by_name["thermostat"]
+        self.assertIn("temp=21.0", thermostat, "float, never an integer")
+        self.assertIn("battery=80.0", thermostat)
+
+        socket = by_name["steckdose"]
+        self.assertIn("power=5.0", socket)
+        self.assertNotIn("temp=", socket, "no temperature sensor on this socket")
+
+    def test_writes_to_the_v2_endpoint(self):
+        code, out, _ = self.run_cli("collect")
+        self.assertEqual(code, 0)
+        self.assertIn("wrote 3 points", out)
+        request = self.influx.requests[0]
+        self.assertIn("/api/v2/write?", request["path"])
+        self.assertIn("org=example_org", request["path"])
+        self.assertIn("bucket=smarthome", request["path"])
+        self.assertIn("precision=ns", request["path"])
+        self.assertTrue(request["auth"].startswith("Token "), "token goes in the header")
+        self.assertIn("text/plain", request["ctype"])
+        self.assertEqual(len(request["body"].strip().splitlines()), 3)
+
+    def test_influx_error_is_reported(self):
+        self.influx.status = 401
+        self.influx.text = "unauthorized access"
+        code, _, err = self.run_cli("collect")
+        self.assertEqual(code, 1)
+        self.assertIn("HTTP 401", err)
+        self.assertIn("unauthorized access", err)
+
+    def test_missing_config_is_a_usage_error(self):
+        os.environ.pop("INFLUX_BUCKET")
+        code, _, err = self.run_cli("collect")
+        self.assertEqual(code, 2)
+        self.assertIn("INFLUX_BUCKET", err)
+
+    def test_measurement_names_are_the_device_names(self):
+        _, out, _ = self.run_cli("collect", "--dry-run")
+        self.assertIn("plug temp=", out)
+        self.assertIn("thermostat temp=", out)
 
 
 class EnvFileTest(unittest.TestCase):

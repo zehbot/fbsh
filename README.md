@@ -51,6 +51,7 @@ and reads `private/.env` from the current directory.
 | `python fbsh.py status [--ain AIN] [--json]` | current values per device |
 | `python fbsh.py switch AIN on\|off\|toggle\|state` | sockets and lights |
 | `python fbsh.py thermostat AIN [--set C] [--on] [--off]` | radiator setpoint, 8–28 °C |
+| `python fbsh.py collect [--dry-run]` | read all devices and write them to InfluxDB |
 | `python fbsh.py raw SWITCHCMD [--ain AIN] [--param K=V]` | any AHA command |
 
 Connection options on every command: `--host`, `--user`, `--password`,
@@ -111,9 +112,39 @@ FRITZ_PASSWORD=change-me
 | `FRITZ_PORT` | explicit port | box default |
 | `FRITZ_VERIFY_TLS` | `1` to verify the certificate | off |
 | `FRITZ_CA_FILE` | PEM of the box certificate | — |
+| `INFLUX_URL` | InfluxDB 2.x base URL | — |
+| `INFLUX_ORG` | organisation | — |
+| `INFLUX_BUCKET` | target bucket | — |
+| `INFLUX_TOKEN` | write token | — |
+| `INFLUX_INSECURE` | `1` to skip TLS verification | off |
 
 The file is parsed, never sourced: `KEY=value`, `export`, quotes and `#`
 comments work. `FBSH_ENV_FILE` points to a different file.
+
+## InfluxDB
+
+`collect` reads every device and writes one point per device to an InfluxDB 2.x
+bucket — thermostats with `temp` and `battery`, metered sockets with `power`,
+sockets that also sense temperature with both. Groups are skipped: they are
+aggregates of their members.
+
+```console
+$ python fbsh.py collect --dry-run
+Esszimmer01 temp=20.0,battery=80.0 1793453389773733213
+Kueche01 temp=20.5,battery=79.0 1793453389773733213
+winter-arbeitszimmer temp=21.0,power=1.0 1793453389773733213
+wintergarten01 power=4.0 1793453389773733213
+# 17 lines, nothing written
+```
+
+- measurement = the device name exactly as the FRITZ!Box reports it
+- `temp` in °C, `power` in W, `battery` in percent — always floats, because a
+  series' field type is immutable in InfluxDB
+- one point per device per run, timestamp in nanoseconds
+- all lines go in a single `POST /api/v2/write` request, so a run is all or nothing
+
+`--dry-run` prints the line protocol and needs no InfluxDB configuration at all,
+which is the safe way to check a rename before it creates a new series.
 
 ## Container
 

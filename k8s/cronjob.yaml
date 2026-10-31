@@ -1,4 +1,4 @@
-# fbsh as a scheduled snapshot: one pod per run, no long running process.
+# fbsh collects the device values and writes them to InfluxDB: one pod per run.
 #
 #   kubectl apply -f k8s/cronjob.yaml
 #   kubectl -n fbsh create secret generic fbsh-env \
@@ -11,10 +11,10 @@ metadata:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: fbsh-status
+  name: fbsh-collect
   namespace: fbsh
 spec:
-  schedule: "*/15 * * * *"
+  schedule: "*/10 * * * *"
   concurrencyPolicy: Forbid          # never two pollers at once
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -29,7 +29,7 @@ spec:
           containers:
             - name: fbsh
               image: inkassodeppen/fbsh:0.1.0
-              args: ["status", "--json"]
+              args: ["collect"]
               envFrom:
                 - secretRef:
                     name: fbsh-env
