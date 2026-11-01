@@ -30,6 +30,7 @@ import argparse
 import csv
 import datetime
 import io
+import json
 import os
 import sys
 import tarfile
@@ -53,6 +54,7 @@ DEFAULT_MAP = {
 DEFAULT_SKIP = {"Comet DECT #18"}
 
 EMPTY_VALUES = {"", "none", "nan", "inval", "null"}
+VERBOSE = False
 
 
 class Stats:
@@ -88,6 +90,7 @@ def parse_args(argv=None):
     p.add_argument("--env-file", help="dotenv file with INFLUX_* (default private/.env if present)")
     p.add_argument("--limit", type=int, help="stop after N rows (for experiments)")
     p.add_argument("--sample", type=int, default=5, help="how many line samples to print")
+    p.add_argument("--verbose", action="store_true", help="print the HTTP answer of every batch")
     p.add_argument("--force", action="store_true",
                    help="write even if the target range already contains temperature data")
     return p.parse_args(argv)
@@ -136,6 +139,9 @@ def post(cfg: dict, body: str) -> None:
     )
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
+            if VERBOSE:
+                print(f"  HTTP {resp.status} {resp.headers.get('X-Influxdb-Version', '')} "
+                      f"server={resp.headers.get('Server', '')}", file=sys.stderr)
             if resp.status not in (200, 204):
                 sys.exit(f"error: influx answered HTTP {resp.status}")
     except urllib.error.HTTPError as err:
@@ -143,6 +149,23 @@ def post(cfg: dict, body: str) -> None:
         sys.exit(f"error: influx rejected the write: HTTP {err.code} {detail}")
     except urllib.error.URLError as err:
         sys.exit(f"error: cannot reach influx: {err.reason}")
+
+
+def bucket_retention(cfg: dict) -> int:
+    """Retention of the target bucket in seconds, 0 means infinite."""
+    url = f"{cfg['url']}/api/v2/buckets?name={urllib.parse.quote(cfg['bucket'])}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Token {cfg['token']}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode() or "{}")
+    except (urllib.error.URLError, ValueError) as err:
+        print(f"  warning: could not read bucket settings: {err}", file=sys.stderr)
+        return 0
+    buckets = data.get("buckets") or []
+    if not buckets:
+        sys.exit(f"error: bucket {cfg['bucket']} not found or not readable by this token")
+    rules = buckets[0].get("retentionRules") or [{}]
+    return int(rules[0].get("everySeconds") or 0)
 
 
 def count_existing(cfg: dict, start: str, stop: str) -> int:
@@ -209,6 +232,8 @@ def number(text: str) -> float | None:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    global VERBOSE
+    VERBOSE = args.verbose
     load_env(args.env_file)
     cfg = None if not args.write else influx_config(args)
 
@@ -231,6 +256,17 @@ def main(argv=None) -> int:
     since = datetime.date.fromisoformat(args.since) if args.since else None
     until = datetime.date.fromisoformat(args.until) if args.until else None
     wanted = set(args.sensor)
+
+    if cfg is not None:
+        seconds = bucket_retention(cfg)
+        if seconds:
+            oldest = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=seconds)
+            print(f"  warning: bucket {cfg['bucket']} keeps only {seconds / 86400:.0f} days "
+                  f"(back to {oldest:%Y-%m-%d}); older points are dropped by InfluxDB",
+                  file=sys.stderr)
+            if not args.force and (since is None or since < oldest.date()):
+                sys.exit("error: the import starts before the bucket's retention - "
+                         "raise the retention or use a different bucket")
 
     if cfg is not None and not args.force:
         start = f"{args.since}T00:00:00Z" if args.since else "1970-01-01T00:00:00Z"

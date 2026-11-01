@@ -200,7 +200,25 @@ sensor and per year — compare them with section 1 before trusting a write.
 
 ---
 
-## 6. The duplicate guard
+## 6. The retention trap
+
+InfluxDB drops a point that is older than the bucket's retention period. A bucket
+created with 30 days or 1 year therefore throws away everything before that,
+**while the write still succeeds** — the API answers 204 and the data never
+appears in a query. This is the failure mode that looks most like success.
+
+The importer reads `retentionRules[0].everySeconds` of the target bucket before
+the first write and refuses to continue if the import starts before it:
+
+```
+warning: bucket smarthome keeps only 30 days (back to 2026-10-02); older points are dropped by InfluxDB
+error: the import starts before the bucket's retention - raise the retention or use a different bucket
+```
+
+`check_import.py` prints the same value, so a bucket that silently discards
+history is visible before anything is written.
+
+## 7. The duplicate guard
 
 InfluxDB overwrites a point that has the same series and timestamp, so **re-running
 the same import is harmless** — it costs time, not correctness.
@@ -221,7 +239,7 @@ month.
 
 ---
 
-## 7. Verification
+## 8. Verification
 
 ### Quick check instead of five curl calls
 
@@ -281,7 +299,7 @@ the gaps.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Cause |
 |---|---|

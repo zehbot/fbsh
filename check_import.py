@@ -167,9 +167,10 @@ def main(argv=None) -> int:
     info = bucket_info(cfg)
     if info:
         rules = info.get("retentionRules") or [{}]
-        retention = rules[0].get("every") or "0s"
-        infinite = retention in ("0s", "0", "")
-        print(f"  retention: {'infinite' if infinite else retention}")
+        seconds = int(rules[0].get("everySeconds") or 0)
+        infinite = seconds == 0
+        label = "infinite" if infinite else f"{seconds} s ({seconds / 86400:.0f} days)"
+        print(f"  retention: {label}")
         if not infinite:
             print("  ! a finite retention deletes anything older than that on write")
     else:
