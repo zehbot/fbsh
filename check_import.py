@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import socket
 import json
 import sys
 import urllib.error
@@ -155,6 +156,9 @@ def diagnose(cfg: dict) -> None:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env-file")
+    parser.add_argument("--window", metavar="START,STOP",
+                        help="count temp points in exactly that RFC3339 window")
+    parser.add_argument("--tasks", action="store_true", help="list InfluxDB tasks")
     parser.add_argument("--diagnose", action="store_true",
                         help="per measurement: count, first, last, plus a monthly histogram")
     parser.add_argument("--bucket")
@@ -163,6 +167,16 @@ def main(argv=None) -> int:
     cfg = config(args)
 
     print(f"bucket: {cfg['bucket']}")
+
+    host = urllib.parse.urlparse(cfg["url"]).hostname or ""
+    port = urllib.parse.urlparse(cfg["url"]).port or (443 if cfg["url"].startswith("https") else 80)
+    try:
+        addresses = sorted({info[4][0] for info in socket.getaddrinfo(host, port)})
+        print(f"  host: {host} -> {', '.join(addresses)}"
+              + ("   ! several addresses, requests may not all reach the same server"
+                 if len(addresses) > 1 else ""))
+    except OSError as err:
+        print(f"  host: {host} (resolution failed: {err})")
 
     info = bucket_info(cfg)
     if info:
@@ -216,6 +230,25 @@ def main(argv=None) -> int:
                 print(f"    {name:<24}{int(float(row['_value'])):>12,}")
             except (KeyError, ValueError):
                 pass
+
+    if args.tasks:
+        raw = request(cfg, f"/api/v2/tasks?org={urllib.parse.quote(cfg['org'])}")
+        tasks = (json.loads(raw or "{}").get("tasks") or [])
+        print(f"\n  tasks: {len(tasks)}")
+        for task in tasks:
+            print(f"    {task.get('name','?'):<30}{task.get('status','?'):<10}{task.get('every','')}")
+        return 0
+
+    if args.window:
+        start, _, stop = args.window.partition(",")
+        rows = flux(cfg, f'from(bucket: "{cfg["bucket"]}") '
+                         f'|> range(start: {start}, stop: {stop}) '
+                         f'|> filter(fn: (r) => r._field == "temp") |> count()')
+        total = sum(int(float(r.get("_value", 0) or 0)) for r in rows)
+        print(f"\n  temp points in {start} .. {stop}: {total:,}")
+        for row in rows[:10]:
+            print(f"    {row.get('_measurement','?'):<26}{row.get('_value','?'):>10}")
+        return 0
 
     if args.diagnose:
         diagnose(cfg)
