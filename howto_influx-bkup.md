@@ -134,6 +134,36 @@ docker run --rm \
 
 The host directories are created if missing, but they must be writable.
 
+#### Trap: the Docker snap and `/tmp`
+
+If Docker is installed as a snap (Ubuntu's default in some releases), the daemon
+runs confined with a **private `/tmp`**. A bind mount of `/tmp/backup-a` then
+points at the snap's own directory, not yours:
+
+```bash
+$ sudo find / -xdev -name 'influxdb-*.tar.gz'
+/tmp/snap-private-tmp/snap.docker/tmp/backup-a/influxdb-20261101T174908Z.tar.gz
+```
+
+The run reports `copied to /backup/a` and `done`, and the host's `/tmp` stays
+empty. `chown` on the host path has no effect, because the container never sees
+that path.
+
+Two consequences:
+
+- put backups somewhere persistent — `$HOME/backups/influx` works with the snap,
+  `/tmp` is wiped on reboot in any case
+- `-v "$HOME/backups/influx:/backup/a"` must be quoted; `-v ~/...` makes Docker
+  create a literal `~` directory
+
+```bash
+mkdir -p "$HOME/backups/influx"
+sudo docker run --rm --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" influxdb-backup:0.1.0
+```
+
+Check `snap list | grep docker` if you are unsure which variant you have.
+
 ### 3.3 Permissions: uid 10001
 
 The image runs as uid `10001`, not root. A directory created by Docker (or by
