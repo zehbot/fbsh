@@ -325,3 +325,14 @@ curl -sS --request POST "https://<host>/api/v2/delete?org=<org>&bucket=<bucket>"
 ```
 
 Without a predicate the whole range goes — including live data, so be precise.
+
+---
+
+## Related
+
+- **[howto_influx-bkup.md](howto_influx-bkup.md)** — taking and restoring backups of
+  the bucket this import writes into
+- **[how_to_setup_fresh_testDB.md](how_to_setup_fresh_testDB.md)** — a scratch
+  instance, e.g. to practise a restore of the imported data
+- **[container_howto.md](container_howto.md)** — running the collector on k3s
+- **[README.md](README.md)** — what `fbsh.py` does

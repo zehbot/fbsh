@@ -78,13 +78,14 @@ copies — but it does exit `1`, so the CronJob shows up as failed.
 ### 3.1 Credentials in a file, not on the command line
 
 ```bash
-cat > /tmp/backup.env <<'EOF'
+mkdir -p ~/.config/fbsh
+cat > ~/.config/fbsh/backup.env <<'EOF'
 INFLUX_URL=http://192.0.2.20:8086
 INFLUX_TOKEN=<operator token>
 BACKUP_TARGETS=/backup/a
 BACKUP_KEEP_DAYS=3
 EOF
-chmod 600 /tmp/backup.env
+chmod 600 ~/.config/fbsh/backup.env
 ```
 
 Why a file: an inline `-e INFLUX_TOKEN=…` lands in your shell history and is
@@ -97,8 +98,8 @@ both, and the file's `chmod 600` limits who can read it.
 docker build -t influxdb-backup:0.1.0 ./backup
 
 docker run --rm \
-  --env-file /tmp/backup.env \
-  -v /srv/backup-a:/backup/a \
+  --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" \
   influxdb-backup:0.1.0
 ```
 
@@ -120,8 +121,8 @@ Two targets means two mounts and a matching variable:
 
 ```bash
 docker run --rm \
-  --env-file /tmp/backup.env \
-  -v /srv/backup-a:/backup/a \
+  --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" \
   -v /mnt/nas/influx:/backup/b \
   -e BACKUP_TARGETS=/backup/a,/backup/b \
   influxdb-backup:0.1.0
@@ -129,7 +130,7 @@ docker run --rm \
 
 | Host path | Mounted at | Purpose |
 |---|---|---|
-| `/srv/backup-a` | `/backup/a` | local disk, fast |
+| `$HOME/backups/influx` | `/backup/a` | local disk, fast |
 | `/mnt/nas/influx` | `/backup/b` | different machine — survives a dead disk |
 
 The host directories are created if missing, but they must be writable.
@@ -175,7 +176,7 @@ archive: influxdb-20261101T174207Z.tar.gz (19M)
 sha256:  f7a7503a...
 cp: cannot create regular file '/backup/a/influxdb-....tar.gz': Permission denied
 error: target /backup/a is not writable by uid 10001
-       fix: sudo mkdir -p /backup/a && sudo chown 10001:10001 /backup/a
+       fix: sudo chown 10001:10001 "$HOME/backups/influx"
        or start the container with --user "$(id -u):$(id -g)"
 ```
 
@@ -190,8 +191,8 @@ Three ways out, best first:
 sudo mkdir -p /srv/backup-a && sudo chown 10001:10001 /srv/backup-a
 
 # 2. run with your own uid instead (the image needs no root)
-docker run --rm --user "$(id -u):$(id -g)" --env-file /tmp/backup.env \
-  -v /srv/backup-a:/backup/a influxdb-backup:0.1.0
+docker run --rm --user "$(id -u):$(id -g)" --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" influxdb-backup:0.1.0
 
 # 3. only for throwaway tests: world-writable
 chmod 777 /srv/backup-a
@@ -217,11 +218,11 @@ Two ways out, and the second one surprises people:
 
 ```bash
 # a) hand the directory to the container's uid
-sudo chown 10001:10001 /tmp/backup-a
+sudo chown 10001:10001 "$HOME/backups/influx"
 
 # b) run the container as root for this one-off test
-sudo docker run --rm --user 0:0 --env-file /tmp/backup.env \
-  -v /tmp/backup-a:/backup/a influxdb-backup:0.1.0
+sudo docker run --rm --user 0:0 --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" influxdb-backup:0.1.0
 ```
 
 Note that `--user "$(id -u):$(id -g)"` is **not** a substitute here: under `sudo`
@@ -239,7 +240,7 @@ done
 ```
 
 On SELinux systems (Fedora, RHEL, CentOS) add `:z` to the mount so the container
-is allowed to write: `-v /srv/backup-a:/backup/a:z`.
+is allowed to write: `-v "$HOME/backups/influx:/backup/a":z`.
 
 ### 3.4 Where the container writes besides the mount
 
@@ -249,7 +250,7 @@ the point — but it means the dataset must fit twice in the container's temp:
 
 ```bash
 docker run --rm --read-only --tmpfs /tmp:size=2g \
-  --env-file /tmp/backup.env -v /srv/backup-a:/backup/a \
+  --env-file ~/.config/fbsh/backup.env -v "$HOME/backups/influx:/backup/a" \
   influxdb-backup:0.1.0
 ```
 
@@ -262,8 +263,8 @@ from your shell. `localhost` means the container itself.
 
 ```bash
 # InfluxDB on the same host: share the host's network
-docker run --rm --network host --env-file /tmp/backup.env \
-  -v /srv/backup-a:/backup/a influxdb-backup:0.1.0
+docker run --rm --network host --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" influxdb-backup:0.1.0
 # and use INFLUX_URL=http://127.0.0.1:8086
 
 # InfluxDB elsewhere: no network flag needed, just its address
@@ -290,9 +291,9 @@ done
 Check the result and clean up:
 
 ```bash
-ls -lh /srv/backup-a
-sha256sum -c /srv/backup-a/*.sha256      # must print OK
-rm /tmp/backup.env
+ls -lh "$HOME/backups/influx"
+sha256sum -c "$HOME/backups/influx/"*.sha256      # must print OK
+rm ~/.config/fbsh/backup.env
 ```
 
 ### 3.7 The same command from the registry
@@ -300,8 +301,8 @@ rm /tmp/backup.env
 No local build, identical flags:
 
 ```bash
-docker run --rm --env-file /tmp/backup.env \
-  -v /srv/backup-a:/backup/a \
+docker run --rm --env-file ~/.config/fbsh/backup.env \
+  -v "$HOME/backups/influx:/backup/a" \
   inkassodeppen/influxdb-backup:0.1.0
 ```
 
@@ -491,55 +492,24 @@ Any monitoring that can stat a file, or a tiny exporter sidecar, does the job.
 
 ## 7. Restore
 
-A backup that was never restored is a guess. Do this once per quarter, and
-always before relying on the archive.
+A backup that was never restored is a guess. Verify once per quarter, and before
+you ever need it in anger.
 
-The whole sequence — fresh container, volume, setup, unpack, restore, verify —
-is collected in **[how_to_setup_fresh_testDB.md](how_to_setup_fresh_testDB.md)**,
-one command per line.
+The commands — fresh container, named volume, setup, unpack, restore, count,
+cleanup — are collected in **[how_to_setup_fresh_testDB.md](how_to_setup_fresh_testDB.md)**,
+one line per command. This section only covers what matters when reading the
+result.
 
-```bash
-# 1. a scratch instance
-docker run -d --name influxrestore -p 8086:8086 influxdb:2.8
+### Two modes, two different outcomes
 
-# 2. get the archive in
-docker cp influxdb-<stamp>.tar.gz influxrestore:/tmp/b.tar.gz
-docker exec influxrestore sh -c 'cd /tmp && tar xzf b.tar.gz'
+| Mode | Restores | Bucket names afterwards | Token afterwards |
+|---|---|---|---|
+| `--bucket X --new-bucket Y` | one bucket's data | `Y`, next to the target's own | your test token keeps working |
+| `--full` | the whole instance: data, users, orgs, tokens | **the original names** | **the token from the backup** |
 
-# 3. set the target up (a restore needs a token to talk to the server)
-docker exec influxrestore influx setup --username admin --password '***' \
-  --org example_org --bucket restore_target --retention 0 \
-  --token "$INFLUX_TOKEN" --force
-
-# 4. restore one bucket under a new name
-docker exec influxrestore influx restore /tmp/influxdb-<stamp>/data \
-  --bucket <original-bucket> --new-bucket restored_demo \
-  --host http://127.0.0.1:8086 --token '***'
-
-# 5. count the points and compare
-curl -sS --request POST "http://127.0.0.1:8086/api/v2/query?org=example_org" \
-  -H "Authorization: Token ***" \
-  -H "Content-Type: application/vnd.flux" -H "Accept: application/csv" \
-  --data 'from(bucket:"restored_demo") |> range(start: 0) |> filter(fn:(r)=> r._field=="temp") |> count()'
-```
-
-A successful restore lists one line per shard:
-
-```
-INFO: Restoring bucket "477cacd73afd551e" as "restored_demo"
-INFO: Restoring TSM snapshot for shard 1
-INFO: Restoring TSM snapshot for shard 2
-...
-INFO: Restoring TSM snapshot for shard 49
-```
-
-The shard count is the useful signal: a snapshot whose metadata restored but whose
-shards did not would show none, and that is exactly what an empty bucket looks
-like afterwards.
-
-#### A full restore replaces your tokens too
-
-Watch for this line in the restore output:
+Both are legitimate; they answer different questions. A single bucket proves the
+shard data is intact. `--full` proves the whole instance can be resurrected — and
+then behaves exactly like production, tokens included:
 
 ```
 INFO: Restoring KV snapshot
@@ -547,26 +517,44 @@ WARN: Restoring KV snapshot overwrote the operator token, ensure following
       commands use the correct token
 ```
 
-The key-value store contains users, orgs and **every token**. After a `--full`
-restore the target no longer accepts the token you created locally for the test —
-only the tokens that came with the snapshot, i.e. the production ones. Queries
-with the old token fail with `401 unauthorized access`, which looks like a broken
-restore but is only the wrong credential.
+After `--full`, two things look like failures and are not:
 
-That is also why `--full` must never point at a live instance: it replaces its
-authentication along with its data.
+- `restored_demo` does not exist — a full restore never creates it, the buckets
+  keep their original names
+- your own token returns `401` — it was replaced by the snapshot's tokens
 
-Two details that cost me time and are easy to get wrong:
+`--full` replaces everything on the target, so never point it at a live instance.
+
+### Reading the result
+
+A successful restore lists one `Restoring TSM snapshot for shard N` line per
+shard. The numbers are **not sequential** — they restore in parallel, so the last
+number printed says nothing about completeness.
+
+The real check is a count:
+
+```flux
+from(bucket: "<bucket>")
+  |> range(start: 0)
+  |> group(columns: ["_measurement", "_field"])
+  |> count()
+```
+
+Compare it with `check_import.py --diagnose` for the same bucket. Equal counts
+per measurement mean the snapshot is faithful; a missing measurement means the
+shard carrying it did not come back.
+
+Note what you will see: the instance holds more than this project's data.
+Measurements such as `POWER`, `Total_In`, `Total_Out` or `Fritzbox` come from
+other producers. A full backup captures them too — the backup is the database,
+not one application.
+
+### Two details that cost time
 
 - the flag is **`--new-bucket`**, not `--newBucketName`; `influx restore --help`
   is the source of truth
-- a *full* restore (`--full`) replaces everything on the target and needs an
-  empty instance — for verification, restoring one bucket is enough and safer
-- count by `_field` as well: `temp` lives in the temperature bucket, `consumption`
-  in the other one, and a filter for the wrong field shows an empty result that
-  looks like a failed restore
-
----
+- a *full* restore (`--full`) needs an empty instance; for verification,
+  restoring one bucket is enough and safer
 
 ## 8. Sizing and retention
 
