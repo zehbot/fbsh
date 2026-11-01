@@ -519,12 +519,29 @@ curl -sS --request POST "http://127.0.0.1:8086/api/v2/query?org=example_org" \
   --data 'from(bucket:"restored_demo") |> range(start: 0) |> filter(fn:(r)=> r._field=="temp") |> count()'
 ```
 
+A successful restore lists one line per shard:
+
+```
+INFO: Restoring bucket "477cacd73afd551e" as "restored_demo"
+INFO: Restoring TSM snapshot for shard 1
+INFO: Restoring TSM snapshot for shard 2
+...
+INFO: Restoring TSM snapshot for shard 49
+```
+
+The shard count is the useful signal: a snapshot whose metadata restored but whose
+shards did not would show none, and that is exactly what an empty bucket looks
+like afterwards.
+
 Two details that cost me time and are easy to get wrong:
 
 - the flag is **`--new-bucket`**, not `--newBucketName`; `influx restore --help`
   is the source of truth
 - a *full* restore (`--full`) replaces everything on the target and needs an
   empty instance — for verification, restoring one bucket is enough and safer
+- count by `_field` as well: `temp` lives in the temperature bucket, `consumption`
+  in the other one, and a filter for the wrong field shows an empty result that
+  looks like a failed restore
 
 ---
 
