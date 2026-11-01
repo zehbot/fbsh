@@ -112,9 +112,51 @@ def show_time(value: str) -> str:
         return value or "-"
 
 
+def diagnose(cfg: dict) -> None:
+    base = (f'from(bucket: "{cfg["bucket"]}") '
+            f'|> range(start: 1970-01-01T00:00:00Z) '
+            f'|> filter(fn: (r) => r._field == "temp")')
+
+    def grouped(agg: str) -> dict[str, dict]:
+        rows = flux(cfg, base + f' |> group(columns: ["_measurement"]) |> {agg}()')
+        out = {}
+        for row in rows:
+            name = row.get("_measurement") or "(none)"
+            out[name] = row
+        return out
+
+    first = grouped("first")
+    last = grouped("last")
+    counts = grouped("count")
+
+    print("\n  per measurement (all time):")
+    print(f"    {'measurement':<26}{'points':>10}  {'from':<20}{'to':<20}")
+    for name in sorted(counts, key=lambda n: -int(float(counts[n].get("_value", 0) or 0))):
+        try:
+            total = int(float(counts[name]["_value"]))
+        except (KeyError, ValueError):
+            total = 0
+        print(f"    {name:<26}{total:>10,}  "
+              f"{show_time(first.get(name, {}).get('_time', '')):<20}"
+              f"{show_time(last.get(name, {}).get('_time', '')):<20}")
+
+    print("\n  points per month (all measurements):")
+    rows = flux(cfg, base + ' |> aggregateWindow(every: 1mo, fn: count, createEmpty: false) '
+                            '|> group(columns: ["_time"]) |> sum()')
+    for row in rows[-40:]:
+        stamp = (row.get("_time") or "")[:7]
+        try:
+            value = int(float(row.get("_value", 0) or 0))
+        except ValueError:
+            continue
+        print(f"    {stamp}  {value:>9,}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env-file")
+    parser.add_argument("--diagnose", action="store_true",
+                        help="per measurement: count, first, last, plus a monthly histogram")
     parser.add_argument("--bucket")
     args = parser.parse_args(argv)
     load_env(args.env_file)
@@ -173,6 +215,10 @@ def main(argv=None) -> int:
                 print(f"    {name:<24}{int(float(row['_value'])):>12,}")
             except (KeyError, ValueError):
                 pass
+
+    if args.diagnose:
+        diagnose(cfg)
+        return 0
 
     print("\n  verdict:")
     earliest = first[0].get("_time", "")
