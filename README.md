@@ -183,6 +183,7 @@ Three artefacts, all optional:
 | public image `inkassodeppen/fbsh:0.1.0` (amd64 + arm64) | Docker Hub |
 | `Dockerfile` — `python:3.12-slim` plus one `COPY`, no build step | repo root |
 | `k8s/cronjob.yaml` — namespace + CronJob, `collect` every 10 minutes | `k8s/` |
+| `backup/` — nightly InfluxDB snapshot to two targets | [howto_influx-bkup.md](howto_influx-bkup.md) |
 
 ```bash
 docker run --rm --env-file private/.env inkassodeppen/fbsh:0.1.0 status

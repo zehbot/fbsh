@@ -391,102 +391,26 @@ The data stays in InfluxDB — deleting the CronJob never touches the bucket.
 
 ## 12. Backups
 
-InfluxDB holds the only copy of the measurement history. `backup/` contains a
-container that snapshots it to **two independent targets** every night.
+InfluxDB holds the only copy of the measurement history. `backup/` snapshots it
+nightly to two targets, and the step-by-step guide — image, Secret with an
+all-access token, the two PVCs, verification and a tested restore — is in
+**[howto_influx-bkup.md](howto_influx-bkup.md)**.
 
-```
-backup/Dockerfile       influxdb:2.8 plus one script
-backup/backup.sh        the runner, configured entirely by environment
-backup/k8s.yaml         two PVCs and a CronJob
-```
-
-### How it works
+Short version:
 
 ```bash
-influx backup /tmp/<name>/data --host "$INFLUX_URL" --token "$INFLUX_TOKEN" --compression gzip
-tar -czf /tmp/<name>.tar.gz -C /tmp <name>
-```
-
-then copies the archive plus a `.sha256` sidecar to every path in
-`BACKUP_TARGETS`, sets both to mode 600, and prunes each target down to
-`BACKUP_KEEP_DAYS` archives.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `INFLUX_URL` | — | source server |
-| `INFLUX_TOKEN` | — | **all-access** token, see below |
-| `BACKUP_TARGETS` | `/backup/a,/backup/b` | one path per copy |
-| `BACKUP_KEEP_DAYS` | `14` | archives kept per target |
-
-Exit `0` ok, `1` at least one target failed (the other copies remain valid),
-`2` configuration error.
-
-### The token needs all-access
-
-A snapshot restores users, orgs and tokens as well, so a bucket-scoped token is
-not enough. Create a dedicated one and keep it in its own Secret:
-
-```bash
+docker build -t registry.example.org/influxdb-backup:0.1.0 ./backup
+kubectl apply -f backup/k8s.yaml
 kubectl -n fbsh create secret generic influxdb-backup \
   --from-literal=INFLUX_URL=http://influxdb.influxdb.svc.cluster.local:8086 \
   --from-literal=INFLUX_TOKEN=***
 ```
 
-### The archive is a secret
+Two things worth remembering even if you skip the guide:
 
-It contains the bolt store — including every token and password hash. Mode 600
-in the script, but the PV behind it is only as protected as the cluster. If the
-second target leaves the house, encrypt it first.
-
-### Running it
-
-```bash
-docker build -t registry.example.org/influxdb-backup:0.1.0 ./backup
-kubectl apply -f backup/k8s.yaml
-kubectl -n fbsh create job --from=cronjob/influxdb-backup influxdb-backup-now
-kubectl -n fbsh logs -l job-name=influxdb-backup-now
-```
-
-Expected log:
-
-```
-source:  http://influxdb.influxdb.svc.cluster.local:8086
-targets: /backup/a,/backup/b
-keep:    14 archives per target
-archive: influxdb-20261101T164058Z.tar.gz (8.0K)
-sha256:  28f593a9...
-copied to /backup/a
-copied to /backup/b
-done
-```
-
-### Two targets that are actually independent
-
-`local-path` for both PVCs means both copies die with the same disk. The point
-of the second target is a different medium: an NFS export, a USB disk on another
-node, or a StorageClass backed by a NAS. Change `storageClassName` on
-`influx-backup-b` accordingly.
-
-Additionally, the compressed size is small enough (the whole 3 M points compress
-to a few hundred MB) to copy a weekly archive off-site by hand.
-
-### Proving a backup restores
-
-A backup that was never restored is a guess. Once per quarter:
-
-```bash
-docker run -d --name influxrestore -p 8086:8086 influxdb:2.8
-docker cp influxdb-<stamp>.tar.gz influxrestore:/tmp/b.tar.gz
-docker exec influxrestore sh -c 'cd /tmp && tar xzf b.tar.gz'
-docker exec influxrestore influx setup --username admin --password '<pw>' \
-  --org example_org --bucket restore_target --token '<token>' --force
-docker exec influxrestore influx restore /tmp/influxdb-<stamp>/data \
-  --bucket <bucket> --new-bucket restored --host http://127.0.0.1:8086 --token '<token>'
-```
-
-Then query `restored` and compare the point count with `check_import.py`.
-The flag is `--new-bucket`, not `--newBucketName` — the CLI's own help only shows
-the former.
+- the token must be **all-access**; a bucket-scoped token cannot snapshot metadata
+- two `local-path` PVCs are one backup, not two — the second target belongs on a
+  different medium
 
 ## 13. Security checklist
 
