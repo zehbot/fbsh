@@ -170,6 +170,10 @@ The source clock is a fixed `+01:00` (CET, no DST — verified against the
 configured heating schedule); `--tz Europe/Berlin` switches to a DST-aware
 conversion if a future export needs it.
 
+The full write-up — what the export contains, why the offset is what it is, the
+name mapping, the duplicate guard and how to verify the result — is in
+**[howto_import_history.md](howto_import_history.md)**.
+
 ## Container
 
 Three artefacts, all optional:
