@@ -533,6 +533,25 @@ The shard count is the useful signal: a snapshot whose metadata restored but who
 shards did not would show none, and that is exactly what an empty bucket looks
 like afterwards.
 
+#### A full restore replaces your tokens too
+
+Watch for this line in the restore output:
+
+```
+INFO: Restoring KV snapshot
+WARN: Restoring KV snapshot overwrote the operator token, ensure following
+      commands use the correct token
+```
+
+The key-value store contains users, orgs and **every token**. After a `--full`
+restore the target no longer accepts the token you created locally for the test —
+only the tokens that came with the snapshot, i.e. the production ones. Queries
+with the old token fail with `401 unauthorized access`, which looks like a broken
+restore but is only the wrong credential.
+
+That is also why `--full` must never point at a live instance: it replaces its
+authentication along with its data.
+
 Two details that cost me time and are easy to get wrong:
 
 - the flag is **`--new-bucket`**, not `--newBucketName`; `influx restore --help`
