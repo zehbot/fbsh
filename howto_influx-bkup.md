@@ -170,6 +170,44 @@ chmod 777 /srv/backup-a
 `chmod 777` on a directory that holds snapshots of every token in the database
 is a bad trade — option 1 or 2.
 
+#### When Docker needs sudo
+
+On many workstations `docker` only runs via `sudo`. Then the bind-mount
+directory is created by **root**, and the container — uid 10001 — cannot write
+into it, even though the backup itself succeeded:
+
+```
+archive: influxdb-20261101T174908Z.tar.gz (19M)
+sha256:  8a3c1103c15497b5...
+cp: cannot create regular file '/backup/a/influxdb-....tar.gz': Permission denied
+error: target /backup/a is not writable by uid 10001
+```
+
+Two ways out, and the second one surprises people:
+
+```bash
+# a) hand the directory to the container's uid
+sudo chown 10001:10001 /tmp/backup-a
+
+# b) run the container as root for this one-off test
+sudo docker run --rm --user 0:0 --env-file /tmp/backup.env \
+  -v /tmp/backup-a:/backup/a influxdb-backup:0.1.0
+```
+
+Note that `--user "$(id -u):$(id -g)"` is **not** a substitute here: under `sudo`
+it expands to `0:0`, i.e. the same as option b, and the archives end up owned by
+root. Fine for a test run, inconvenient for a directory you want to inspect as
+your normal user.
+
+A working run ends with:
+
+```
+archive: influxdb-20261101T174908Z.tar.gz (19M)
+sha256:  8a3c1103c15497b58177eff91833789aa6072a635eab5dc60e17a8879591630b
+copied to /backup/a
+done
+```
+
 On SELinux systems (Fedora, RHEL, CentOS) add `:z` to the mount so the container
 is allowed to write: `-v /srv/backup-a:/backup/a:z`.
 
@@ -244,7 +282,8 @@ docker run --rm --env-file /tmp/backup.env \
 | `-v host:container` | the only place data survives the run |
 | `--network host` | only when InfluxDB listens on the same machine |
 | `--read-only --tmpfs /tmp` | optional, but the image needs no writable root |
-| `--user $(id -u)` | alternative to `chown 10001` on the mount |
+| `--user $(id -u)` | alternative to `chown 10001` — but under `sudo` it resolves to root |
+| `--user 0:0` | write as root on purpose, e.g. for a quick local test |
 
 ---
 
@@ -259,6 +298,14 @@ docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
 
 `--provenance=false` keeps the manifest list to the two real platforms; the
 attestation otherwise adds a third entry that some tooling trips over.
+
+If `docker buildx` is missing, Docker falls back to the legacy builder and prints
+`DEPRECATED: The legacy builder is deprecated`. That is harmless for a
+single-architecture build on the machine that will run it:
+
+```bash
+docker build -t influxdb-backup:0.1.0 ./backup
+```
 
 ---
 
