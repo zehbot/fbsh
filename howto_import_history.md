@@ -223,7 +223,33 @@ month.
 
 ## 7. Verification
 
-Row accounting from the dry run:
+### Quick check instead of five curl calls
+
+`check_import.py` reads `private/.env` itself and prints the essentials:
+
+```console
+$ python check_import.py
+bucket: smarthome
+  retention: infinite
+
+  earliest point: 2019-01-27 19:55 UTC
+  latest point:   2024-09-20 19:30 UTC
+  temp points:    1,841,890
+
+  per measurement:
+    Esszimmer01                  219,689
+    Entree                       112,272
+
+  verdict:
+    data is present with plausible timestamps
+    -> if Grafana stays empty, set an absolute range (2019-01-01 .. 2025-01-01)
+```
+
+It answers the three questions in order: does the bucket keep the data
+(retention), is anything in there, and with which timestamps. Options:
+`--bucket`, `--env-file`.
+
+### Row accounting from the dry run:
 
 | Metric | Expected |
 |---|---|
