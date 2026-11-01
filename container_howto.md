@@ -394,7 +394,9 @@ The data stays in InfluxDB — deleting the CronJob never touches the bucket.
 InfluxDB holds the only copy of the measurement history. `backup/` snapshots it
 nightly to two targets, and the step-by-step guide — image, Secret with an
 all-access token, the two PVCs, verification and a tested restore — is in
-**[howto_influx-bkup.md](howto_influx-bkup.md)**.
+**[howto_influx-bkup.md](howto_influx-bkup.md)**. To verify a snapshot without
+touching the live database, follow
+**[how_to_setup_fresh_testDB.md](how_to_setup_fresh_testDB.md)**.
 
 Short version:
 

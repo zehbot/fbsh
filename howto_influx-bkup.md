@@ -494,6 +494,10 @@ Any monitoring that can stat a file, or a tiny exporter sidecar, does the job.
 A backup that was never restored is a guess. Do this once per quarter, and
 always before relying on the archive.
 
+The whole sequence — fresh container, volume, setup, unpack, restore, verify —
+is collected in **[how_to_setup_fresh_testDB.md](how_to_setup_fresh_testDB.md)**,
+one command per line.
+
 ```bash
 # 1. a scratch instance
 docker run -d --name influxrestore -p 8086:8086 influxdb:2.8
@@ -600,6 +604,8 @@ be restored on its own, without a chain that must be complete.
 
 - **[container_howto.md](container_howto.md)** — the collector's image, Secret,
   CronJob, TLS and day-2 operations
+- **[how_to_setup_fresh_testDB.md](how_to_setup_fresh_testDB.md)** — a scratch
+  instance to restore into, command by command
 - **[howto_import_history.md](howto_import_history.md)** — loading the historic
   CSV export into the same bucket
 - **[README.md](README.md)** — what `fbsh.py` does
