@@ -77,20 +77,28 @@ copies — but it does exit `1`, so the CronJob shows up as failed.
 ```bash
 docker build -t influxdb-backup:0.1.0 ./backup
 
-docker run --rm \
-  -e INFLUX_URL=http://192.0.2.20:8086 \
-  -e INFLUX_TOKEN=*** \
-  -e BACKUP_TARGETS=/backup/a \
-  -e BACKUP_KEEP_DAYS=3 \
+# credentials in a file, not in the command line (they end up in `ps` and history)
+cat > /tmp/backup.env <<'EOF'
+INFLUX_URL=http://192.0.2.20:8086
+INFLUX_TOKEN=<all-access token>
+BACKUP_TARGETS=/backup/a
+BACKUP_KEEP_DAYS=3
+EOF
+chmod 600 /tmp/backup.env
+
+docker run --rm --env-file /tmp/backup.env \
   -v /srv/backup-a:/backup/a \
   influxdb-backup:0.1.0
+
+rm /tmp/backup.env
 ```
 
-The image also runs from a registry, without building:
+The image also runs straight from the registry, without building — same
+`--env-file`, different image name:
 
 ```bash
-docker run --rm -e INFLUX_URL=… -e INFLUX_TOKEN=… \
-  -v /srv/backup-a:/backup/a inkassodeppen/influxdb-backup:0.1.0
+docker run --rm --env-file /tmp/backup.env -v /srv/backup-a:/backup/a \
+  inkassodeppen/influxdb-backup:0.1.0
 ```
 
 Expected output:
@@ -134,21 +142,70 @@ attestation otherwise adds a third entry that some tooling trips over.
 - two PVCs, ideally on **different** storage
 - an all-access token
 
-### 5.2 The token
+### 5.2 The token — where it comes from
+
+The token in `private/.env` (the collector's) is **not** usable here. It has write
+access to two buckets; a snapshot reads users, orgs and authorisations, which
+requires an **all-access** token.
+
+Create a dedicated one:
+
+**InfluxDB UI** — *Load Data → API Tokens → Generate API Token → All Access*,
+description `backup`. The value is shown once.
+
+**or via CLI**, on a machine that already has an operator token:
 
 ```bash
-kubectl -n fbsh create secret generic influxdb-backup \
-  --from-literal=INFLUX_URL=http://influxdb.influxdb.svc.cluster.local:8086 \
-  --from-literal=INFLUX_TOKEN=***
+influx auth create \
+  --all-access \
+  --org example_org \
+  --description "nightly backup" \
+  --host http://192.0.2.20:8086 \
+  --token ***
 ```
 
-Use a dedicated token, not the one the collector writes with. Separate secrets
-mean separate rotation, and a leaked write token cannot dump the whole database.
+Both print the token exactly once. Put it into the Secret without leaving it in
+the shell history:
+
+```bash
+read -rs BACKUP_TOKEN           # paste, nothing is echoed
+kubectl -n fbsh create secret generic influxdb-backup \
+  --from-literal=INFLUX_URL=http://influxdb.influxdb.svc.cluster.local:8086 \
+  --from-literal=INFLUX_TOKEN="$BACKUP_TOKEN"
+unset BACKUP_TOKEN
+```
 
 Check what landed — names only, never values:
 
 ```bash
 kubectl -n fbsh get secret influxdb-backup -o jsonpath='{.data}' | jq -r 'keys[]'
+```
+
+### Why a second token at all
+
+| Token | Stored in | Rights | Used by |
+|---|---|---|---|
+| collector | `fbsh-env` (from `private/.env`) | write on two buckets | the CronJob that reads the FRITZ!Box |
+| backup | `influxdb-backup` | all-access | this CronJob only |
+
+Separate secrets mean separate rotation. A leaked write token can corrupt two
+buckets; a leaked all-access token can dump and rewrite everything, so it should
+exist in exactly one place.
+
+The backup script checks this before the first byte: if the token cannot list
+authorisations, it stops with
+
+```
+error: the token cannot list authorizations, so it is not all-access.
+       create one with: influx auth create --all-access --org <org> --description backup
+```
+
+instead of a bare `401` from somewhere inside `influx backup`. A successful run
+says so in the log:
+
+```
+token:   all-access confirmed
+running: influx backup
 ```
 
 ### 5.3 Two targets that are actually independent
@@ -241,7 +298,8 @@ docker exec influxrestore sh -c 'cd /tmp && tar xzf b.tar.gz'
 
 # 3. set the target up (a restore needs a token to talk to the server)
 docker exec influxrestore influx setup --username admin --password '***' \
-  --org example_org --bucket restore_target --retention 0 --token '***' --force
+  --org example_org --bucket restore_target --retention 0 \
+  --token "$INFLUX_TOKEN" --force
 
 # 4. restore one bucket under a new name
 docker exec influxrestore influx restore /tmp/influxdb-<stamp>/data \

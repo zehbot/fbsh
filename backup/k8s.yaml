@@ -1,11 +1,19 @@
 # Nightly InfluxDB snapshot, written to two independent targets.
 #
 #   kubectl apply -f backup/k8s.yaml
+# The token is NOT the one the collector writes with. A snapshot restores users,
+# orgs and tokens, so it needs an all-access token:
+#
+#   influx auth create --all-access --org <org> --description backup
+#
+# Take the value it prints - it is shown exactly once - and put it in the Secret
+# without leaving it in the shell history:
+#
+#   read -rs BACKUP_TOKEN
 #   kubectl -n fbsh create secret generic influxdb-backup \
 #     --from-literal=INFLUX_URL=http://influxdb.influxdb.svc.cluster.local:8086 \
-#     --from-literal=INFLUX_TOKEN=$(openssl rand -hex 32)
-#
-# The token must have all-access rights: a snapshot restores users and orgs too.
+#     --from-literal=INFLUX_TOKEN="$BACKUP_TOKEN"
+#   unset BACKUP_TOKEN
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

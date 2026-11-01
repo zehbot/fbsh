@@ -31,6 +31,14 @@ log "source:  ${INFLUX_URL}"
 log "targets: ${TARGETS}"
 log "keep:    ${KEEP_DAYS} archives per target"
 
+# a bucket-scoped token fails deep inside influx backup with a bare 401 - say it early
+if ! influx auth list --host "${INFLUX_URL}" --token "${INFLUX_TOKEN}" --hide-headers >/dev/null 2>&1; then
+  printf 'error: the token cannot list authorizations, so it is not all-access.\n' >&2
+  printf '       create one with: influx auth create --all-access --org <org> --description backup\n' >&2
+  exit 2
+fi
+log "token:   all-access confirmed"
+
 mkdir -p "${WORK}/data"
 log "running: influx backup"
 influx backup "${WORK}/data" \
