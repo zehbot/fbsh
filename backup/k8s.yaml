@@ -3,7 +3,7 @@
 #   kubectl apply -f backup/k8s.yaml
 #   kubectl -n fbsh create secret generic influxdb-backup \
 #     --from-literal=INFLUX_URL=http://influxdb.influxdb.svc.cluster.local:8086 \
-#     --from-literal=INFLUX_TOKEN=***
+#     --from-literal=INFLUX_TOKEN=$(openssl rand -hex 32)
 #
 # The token must have all-access rights: a snapshot restores users and orgs too.
 apiVersion: v1
