@@ -1,0 +1,90 @@
+# Nightly InfluxDB snapshot, written to two independent targets.
+#
+#   kubectl apply -f backup/k8s.yaml
+#   kubectl -n fbsh create secret generic influxdb-backup \
+#     --from-literal=INFLUX_URL=http://influxdb.influxdb.svc.cluster.local:8086 \
+#     --from-literal=INFLUX_TOKEN=***
+#
+# The token must have all-access rights: a snapshot restores users and orgs too.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: influx-backup-a
+  namespace: fbsh
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path        # adjust to the cluster
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: influx-backup-b
+  namespace: fbsh
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path        # a different medium than -a is the point
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: influxdb-backup
+  namespace: fbsh
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001            # makes the PVCs writable for uid 10001
+          containers:
+            - name: backup
+              image: inkassodeppen/influxdb-backup:0.1.0
+              envFrom:
+                - secretRef:
+                    name: influxdb-backup
+              env:
+                - name: BACKUP_TARGETS
+                  value: /backup/a,/backup/b
+                - name: BACKUP_KEEP_DAYS
+                  value: "14"
+              volumeMounts:
+                - name: target-a
+                  mountPath: /backup/a
+                - name: target-b
+                  mountPath: /backup/b
+                - name: scratch
+                  mountPath: /tmp      # influx backup writes here first
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 512Mi}
+          volumes:
+            - name: target-a
+              persistentVolumeClaim:
+                claimName: influx-backup-a
+            - name: target-b
+              persistentVolumeClaim:
+                claimName: influx-backup-b
+            - name: scratch
+              emptyDir:
+                sizeLimit: 2Gi
