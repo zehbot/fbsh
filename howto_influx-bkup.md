@@ -74,10 +74,9 @@ copies — but it does exit `1`, so the CronJob shows up as failed.
 
 ## 3. Run it locally first
 
-```bash
-docker build -t influxdb-backup:0.1.0 ./backup
+### 3.1 Credentials in a file, not on the command line
 
-# credentials in a file, not in the command line (they end up in `ps` and history)
+```bash
 cat > /tmp/backup.env <<'EOF'
 INFLUX_URL=http://192.0.2.20:8086
 INFLUX_TOKEN=<all-access token>
@@ -85,28 +84,123 @@ BACKUP_TARGETS=/backup/a
 BACKUP_KEEP_DAYS=3
 EOF
 chmod 600 /tmp/backup.env
-
-docker run --rm --env-file /tmp/backup.env \
-  -v /srv/backup-a:/backup/a \
-  influxdb-backup:0.1.0
-
-rm /tmp/backup.env
 ```
 
-The image also runs straight from the registry, without building — same
-`--env-file`, different image name:
+Why a file: an inline `-e INFLUX_TOKEN=…` lands in your shell history and is
+visible in `ps` for as long as the container runs. `--env-file` keeps it out of
+both, and the file's `chmod 600` limits who can read it.
+
+### 3.2 The mount — the part that usually goes wrong
 
 ```bash
-docker run --rm --env-file /tmp/backup.env -v /srv/backup-a:/backup/a \
-  inkassodeppen/influxdb-backup:0.1.0
+docker build -t influxdb-backup:0.1.0 ./backup
+
+docker run --rm \
+  --env-file /tmp/backup.env \
+  -v /srv/backup-a:/backup/a \
+  influxdb-backup:0.1.0
 ```
 
-Expected output:
+`-v HOST:CONTAINER` has two sides, and both matter:
+
+```
+        -v /srv/backup-a : /backup/a
+           └────┬─────┘    └───┬────┘
+        real directory      path inside the container
+        on this machine     — must equal an entry of BACKUP_TARGETS
+```
+
+The script writes to whatever is in `BACKUP_TARGETS`, default `/backup/a` and
+`/backup/b`. If the right-hand side of `-v` differs from that, the container
+writes into its own filesystem and the archive disappears when it exits —
+`--rm` deletes everything that was not on a mount.
+
+Two targets means two mounts and a matching variable:
+
+```bash
+docker run --rm \
+  --env-file /tmp/backup.env \
+  -v /srv/backup-a:/backup/a \
+  -v /mnt/nas/influx:/backup/b \
+  -e BACKUP_TARGETS=/backup/a,/backup/b \
+  influxdb-backup:0.1.0
+```
+
+| Host path | Mounted at | Purpose |
+|---|---|---|
+| `/srv/backup-a` | `/backup/a` | local disk, fast |
+| `/mnt/nas/influx` | `/backup/b` | different machine — survives a dead disk |
+
+The host directories are created if missing, but they must be writable.
+
+### 3.3 Permissions: uid 10001
+
+The image runs as uid `10001`, not root. A directory created by your own user is
+usually `755` and owned by you, so the container cannot write into it:
+
+```
+error: target /backup/a is not writable
+```
+
+Three ways out, best first:
+
+```bash
+# 1. hand the directory to the container's uid
+sudo mkdir -p /srv/backup-a && sudo chown 10001:10001 /srv/backup-a
+
+# 2. run with your own uid instead (the image needs no root)
+docker run --rm --user "$(id -u):$(id -g)" --env-file /tmp/backup.env \
+  -v /srv/backup-a:/backup/a influxdb-backup:0.1.0
+
+# 3. only for throwaway tests: world-writable
+chmod 777 /srv/backup-a
+```
+
+`chmod 777` on a directory that holds snapshots of every token in the database
+is a bad trade — option 1 or 2.
+
+On SELinux systems (Fedora, RHEL, CentOS) add `:z` to the mount so the container
+is allowed to write: `-v /srv/backup-a:/backup/a:z`.
+
+### 3.4 Where the container writes besides the mount
+
+`influx backup` needs scratch space under `/tmp` and the script also builds the
+tarball there. That is inside the container and vanishes with `--rm`, which is
+the point — but it means the dataset must fit twice in the container's temp:
+
+```bash
+docker run --rm --read-only --tmpfs /tmp:size=2g \
+  --env-file /tmp/backup.env -v /srv/backup-a:/backup/a \
+  influxdb-backup:0.1.0
+```
+
+For a few hundred MB of compressed data, 2 GiB of tmpfs is comfortable.
+
+### 3.5 Talking to the database
+
+`INFLUX_URL` inside the file must be reachable **from inside the container**, not
+from your shell. `localhost` means the container itself.
+
+```bash
+# InfluxDB on the same host: share the host's network
+docker run --rm --network host --env-file /tmp/backup.env \
+  -v /srv/backup-a:/backup/a influxdb-backup:0.1.0
+# and use INFLUX_URL=http://127.0.0.1:8086
+
+# InfluxDB elsewhere: no network flag needed, just its address
+# INFLUX_URL=http://192.0.2.20:8086
+```
+
+Without `--network host` you would have to use `--add-host` or the host's bridge
+address instead of `127.0.0.1`.
+
+### 3.6 Expected output
 
 ```
 source:  http://192.0.2.20:8086
 targets: /backup/a
 keep:    3 archives per target
+token:   all-access confirmed
 running: influx backup
 archive: influxdb-20261101T164058Z.tar.gz (8.0K)
 sha256:  28f593a97aeaf89f8905a117c8efcc1adeebdf6c4283607842bf7522c849514b
@@ -114,9 +208,32 @@ copied to /backup/a
 done
 ```
 
-The container runs as uid `10001`. If the bind mount is owned by another user,
-the copy fails with `target /backup/a is not writable` — `chown 10001:10001` or
-use `-e BACKUP_TARGETS` with a path you own.
+Check the result and clean up:
+
+```bash
+ls -lh /srv/backup-a
+sha256sum -c /srv/backup-a/*.sha256      # must print OK
+rm /tmp/backup.env
+```
+
+### 3.7 The same command from the registry
+
+No local build, identical flags:
+
+```bash
+docker run --rm --env-file /tmp/backup.env \
+  -v /srv/backup-a:/backup/a \
+  inkassodeppen/influxdb-backup:0.1.0
+```
+
+| Flag | Why |
+|---|---|
+| `--rm` | the container is a one-shot; keeps no state |
+| `--env-file` | keeps the token out of `ps` and history |
+| `-v host:container` | the only place data survives the run |
+| `--network host` | only when InfluxDB listens on the same machine |
+| `--read-only --tmpfs /tmp` | optional, but the image needs no writable root |
+| `--user $(id -u)` | alternative to `chown 10001` on the mount |
 
 ---
 
