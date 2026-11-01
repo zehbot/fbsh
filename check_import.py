@@ -193,8 +193,8 @@ def main(argv=None) -> int:
     scope = 'from(bucket: "%s") |> range(start: 1970-01-01T00:00:00Z) ' \
             '|> filter(fn: (r) => r._field == "temp")' % cfg["bucket"]
 
-    first = flux(cfg, scope + " |> first()")
-    last = flux(cfg, scope + " |> last()")
+    first = flux(cfg, scope + ' |> group() |> sort(columns: ["_time"]) |> limit(n: 1)')
+    last = flux(cfg, scope + ' |> group() |> sort(columns: ["_time"], desc: true) |> limit(n: 1)')
     if not first:
         print("\n  no temperature points at all in this bucket")
         print("  -> the import did not write, or went to another bucket")
