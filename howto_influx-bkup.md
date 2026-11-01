@@ -136,12 +136,22 @@ The host directories are created if missing, but they must be writable.
 
 ### 3.3 Permissions: uid 10001
 
-The image runs as uid `10001`, not root. A directory created by your own user is
-usually `755` and owned by you, so the container cannot write into it:
+The image runs as uid `10001`, not root. A directory created by Docker (or by
+`sudo mkdir`) belongs to root with mode 755, so the copy fails even though the
+backup itself succeeded:
 
 ```
-error: target /backup/a is not writable
+archive: influxdb-20261101T174207Z.tar.gz (19M)
+sha256:  f7a7503a...
+cp: cannot create regular file '/backup/a/influxdb-....tar.gz': Permission denied
+error: target /backup/a is not writable by uid 10001
+       fix: sudo mkdir -p /backup/a && sudo chown 10001:10001 /backup/a
+       or start the container with --user "$(id -u):$(id -g)"
 ```
+
+Note what this means: the snapshot was taken, the archive exists — only the copy
+failed. Nothing is lost, but nothing is backed up either. Fix the ownership and
+run again; the next run overwrites nothing that matters.
 
 Three ways out, best first:
 

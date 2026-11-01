@@ -74,7 +74,10 @@ for target in $(printf '%s' "${TARGETS}" | tr ',' ' '); do
         done
     log "copied to ${target}"
   else
-    printf 'error: target %s is not writable\n' "${target}" >&2
+    printf 'error: target %s is not writable by uid %s\n' "${target}" "$(id -u)" >&2
+    printf '       fix: sudo mkdir -p %s && sudo chown %s:%s %s\n' \
+      "${target}" "$(id -u)" "$(id -g)" "${target}" >&2
+    printf '       or start the container with --user "$(id -u):$(id -g)"\n' >&2
     failed=1
   fi
 done
