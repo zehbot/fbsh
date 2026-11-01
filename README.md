@@ -153,6 +153,23 @@ wintergarten01 power=4.0 1793453389773733213
 `--dry-run` prints the line protocol and needs no InfluxDB configuration at all,
 which is the safe way to check a rename before it creates a new series.
 
+### Historic data (one-time)
+
+`import_history.py` loads the old CSV export (2019–2024, one file per sensor and
+month inside a `.tar.xz`) into the same bucket. It reads the archive directly,
+dry run by default, writes only with `--write`, and refuses to touch a range that
+already holds temperature data unless `--force` is given.
+
+```bash
+python import_history.py --src fritzsmarthome_data_2019-2024.tar.xz
+python import_history.py --src fritzsmarthome_data_2019-2024.tar.xz \
+  --since 2022-03-01 --until 2022-03-31 --write      # one month as a test
+```
+
+The source clock is a fixed `+01:00` (CET, no DST — verified against the
+configured heating schedule); `--tz Europe/Berlin` switches to a DST-aware
+conversion if a future export needs it.
+
 ## Container
 
 Three artefacts, all optional:
