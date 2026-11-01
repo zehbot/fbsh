@@ -33,8 +33,9 @@ users, orgs, **tokens**) plus the TSM files for all shards. It is restored with
 
 Two consequences worth stating plainly:
 
-- **The token needs all-access rights.** A bucket-scoped write token cannot read
-  the metadata, so `influx backup` fails with 401.
+- **The token must be the operator token from `influx setup`.** Neither a
+  bucket-scoped token nor a self-created all-access token can download the
+  metadata store; both fail with 401. Details and measurements in 5.2.
 - **The archive is as sensitive as a password file.** It contains every token and
   password hash of the server. The script writes mode `600`; whether that is
   enough depends on who can read the volume.
@@ -52,7 +53,7 @@ All through the environment — no files inside the image, nothing baked in.
 | Variable | Default | Meaning |
 |---|---|---|
 | `INFLUX_URL` | — (required) | source, e.g. `http://influxdb.influxdb.svc.cluster.local:8086` |
-| `INFLUX_TOKEN` | — (required) | all-access token |
+| `INFLUX_TOKEN` | — (required) | operator token from `influx setup` |
 | `BACKUP_TARGETS` | `/backup/a,/backup/b` | comma separated paths, one copy each |
 | `BACKUP_KEEP_DAYS` | `14` | archives kept **per target**, older ones are removed |
 
@@ -79,7 +80,7 @@ copies — but it does exit `1`, so the CronJob shows up as failed.
 ```bash
 cat > /tmp/backup.env <<'EOF'
 INFLUX_URL=http://192.0.2.20:8086
-INFLUX_TOKEN=<all-access token>
+INFLUX_TOKEN=<operator token>
 BACKUP_TARGETS=/backup/a
 BACKUP_KEEP_DAYS=3
 EOF
@@ -200,7 +201,7 @@ address instead of `127.0.0.1`.
 source:  http://192.0.2.20:8086
 targets: /backup/a
 keep:    3 archives per target
-token:   all-access confirmed
+token:   accepted
 running: influx backup
 archive: influxdb-20261101T164058Z.tar.gz (8.0K)
 sha256:  28f593a97aeaf89f8905a117c8efcc1adeebdf6c4283607842bf7522c849514b
@@ -257,32 +258,36 @@ attestation otherwise adds a third entry that some tooling trips over.
 
 - a namespace (`fbsh` in the manifest — adjust freely)
 - two PVCs, ideally on **different** storage
-- an all-access token
+- the operator token from `influx setup`
 
-### 5.2 The token — where it comes from
+### 5.2 The token — and the trap behind it
 
-The token in `private/.env` (the collector's) is **not** usable here. It has write
-access to two buckets; a snapshot reads users, orgs and authorisations, which
-requires an **all-access** token.
+Two things are true at once, and the second one is not obvious:
 
-Create a dedicated one:
+1. the collector's token from `private/.env` cannot be used — it has write access
+   to two buckets and nothing else
+2. **a normal all-access token does not work either**
 
-**InfluxDB UI** — *Load Data → API Tokens → Generate API Token → All Access*,
-description `backup`. The value is shown once.
+A snapshot downloads the metadata store, and InfluxDB only allows that for the
+**operator token created by `influx setup`**. Measured on 2.8.0:
 
-**or via CLI**, on a machine that already has an operator token:
+| Token | `influx backup` |
+|---|---|
+| write token (collector) | 401, `read:authorizations is unauthorized` |
+| `influx auth create --all-access` | 401, `failed to download metadata snapshot` |
+| `influx auth create --operator` | 401, same |
+| **operator token from `influx setup`** | **works** |
+
+So the token you need is the one you passed to `--token` when initialising
+InfluxDB, or the entry in *Load Data → API Tokens* whose description is
+`<username>'s Token`. It cannot be recreated — treat it accordingly.
 
 ```bash
-influx auth create \
-  --all-access \
-  --org example_org \
-  --description "nightly backup" \
-  --host http://192.0.2.20:8086 \
-  --token ***
+# find it: the description is "<user>'s Token"
+influx auth list --host http://192.0.2.20:8086 --token ***
 ```
 
-Both print the token exactly once. Put it into the Secret without leaving it in
-the shell history:
+Then into the Secret, without leaving it in the shell history:
 
 ```bash
 read -rs BACKUP_TOKEN           # paste, nothing is echoed
@@ -298,32 +303,29 @@ Check what landed — names only, never values:
 kubectl -n fbsh get secret influxdb-backup -o jsonpath='{.data}' | jq -r 'keys[]'
 ```
 
-### Why a second token at all
+### Why a second secret at all
 
 | Token | Stored in | Rights | Used by |
 |---|---|---|---|
 | collector | `fbsh-env` (from `private/.env`) | write on two buckets | the CronJob that reads the FRITZ!Box |
-| backup | `influxdb-backup` | all-access | this CronJob only |
+| backup | `influxdb-backup` | operator | this CronJob only |
 
-Separate secrets mean separate rotation. A leaked write token can corrupt two
-buckets; a leaked all-access token can dump and rewrite everything, so it should
-exist in exactly one place.
+They have different lifetimes and different blast radius, so they are separate
+secrets with separate rotation. The operator token is the more dangerous one: it
+can dump and rewrite the whole instance.
 
-The backup script checks this before the first byte: if the token cannot list
-authorisations, it stops with
+### What a wrong token looks like
 
-```
-error: the token cannot list authorizations, so it is not all-access.
-       create one with: influx auth create --all-access --org <org> --description backup
-```
-
-instead of a bare `401` from somewhere inside `influx backup`. A successful run
-says so in the log:
+The script classifies the failure instead of passing the raw error through:
 
 ```
-token:   all-access confirmed
 running: influx backup
+error: this token may not read the metadata snapshot.
+       a snapshot needs the operator token from `influx setup` -
+       all-access and self-created operator tokens are rejected.
 ```
+
+A successful run answers with `token:   accepted` right after the call.
 
 ### 5.3 Two targets that are actually independent
 

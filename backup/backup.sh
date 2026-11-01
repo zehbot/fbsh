@@ -4,14 +4,18 @@
 # Configured entirely through the environment:
 #
 #   INFLUX_URL        http://influxdb:8086      source
-#   INFLUX_TOKEN      all-access token          snapshots restore users and orgs too
+#   INFLUX_TOKEN      operator token            see the note below
 #   BACKUP_TARGETS    /backup/a,/backup/b       one path per copy
-#   BACKUP_KEEP_DAYS  14                        older archives per target are removed
+#   BACKUP_KEEP_DAYS  14                        archives kept per target
+#
+# The token must be the operator token created by `influx setup`. A snapshot
+# reads the metadata store, and InfluxDB rejects everything else there - an
+# all-access token passes every other check and still fails with 401.
 #
 # The archive contains the bolt store including users and tokens - treat it like
 # a password file.
 #
-# Exit codes: 0 ok, 1 at least one target failed, 2 configuration error.
+# Exit codes: 0 ok, 1 backup or target failed, 2 configuration or token problem.
 
 set -eu
 
@@ -31,20 +35,25 @@ log "source:  ${INFLUX_URL}"
 log "targets: ${TARGETS}"
 log "keep:    ${KEEP_DAYS} archives per target"
 
-# a bucket-scoped token fails deep inside influx backup with a bare 401 - say it early
-if ! influx auth list --host "${INFLUX_URL}" --token "${INFLUX_TOKEN}" --hide-headers >/dev/null 2>&1; then
-  printf 'error: the token cannot list authorizations, so it is not all-access.\n' >&2
-  printf '       create one with: influx auth create --all-access --org <org> --description backup\n' >&2
-  exit 2
-fi
-log "token:   all-access confirmed"
-
 mkdir -p "${WORK}/data"
 log "running: influx backup"
-influx backup "${WORK}/data" \
-  --host "${INFLUX_URL}" \
-  --token "${INFLUX_TOKEN}" \
-  --compression gzip >/dev/null
+
+# Classify the failure: a token that cannot read the metadata store produces a
+# bare 401 deep inside the backup call, which is useless on its own.
+if ! influx backup "${WORK}/data" \
+      --host "${INFLUX_URL}" \
+      --token "${INFLUX_TOKEN}" \
+      --compression gzip >/dev/null 2>"${WORK}/err"; then
+  if grep -qi 'unauthorized' "${WORK}/err"; then
+    printf 'error: this token may not read the metadata snapshot.\n' >&2
+    printf '       a snapshot needs the operator token from `influx setup` -\n' >&2
+    printf '       all-access and self-created operator tokens are rejected.\n' >&2
+  else
+    sed 's/^/  /' "${WORK}/err" >&2
+  fi
+  exit 2
+fi
+log "token:   accepted"
 
 ARCHIVE="/tmp/${NAME}.tar.gz"
 tar -czf "${ARCHIVE}" -C /tmp "${NAME}"
