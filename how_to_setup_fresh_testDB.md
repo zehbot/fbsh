@@ -93,33 +93,61 @@ sudo docker exec influxrestore sh -c 'cd /tmp && mkdir -p r && tar xzf /backup/<
 Replace `<archive>` with the file name in `$HOME/backups/influx`, without the
 `.tar.gz` suffix inside the path below.
 
-## 8. Restore
+## 8. Restore — two modes that behave differently
 
-One bucket, under a new name:
+| Mode | Restores | Bucket names afterwards | Token afterwards |
+|---|---|---|---|
+| `--bucket X --new-bucket Y` | the data of one bucket | `Y`, next to the target's own | your test token keeps working |
+| `--full` | the whole instance: data, users, orgs, tokens | **the original names** | **the token from the backup** |
+
+### One bucket under a new name
 
 ```bash
 sudo docker exec -e INFLUX_TOKEN="$INFLUX_TOKEN" influxrestore influx restore /tmp/r/<archive>/data --bucket <source-bucket> --new-bucket restored_demo
 ```
 
-Everything, including users and tokens:
+The target keeps its own auth, so `$INFLUX_TOKEN` still works, and a bucket called
+`restored_demo` appears next to `restore_target`.
+
+### Everything
 
 ```bash
 sudo docker exec -e INFLUX_TOKEN="$INFLUX_TOKEN" influxrestore influx restore /tmp/r/<archive>/data --full
 ```
 
-`--full` replaces the entire target instance, **including its tokens** — after it,
-the token from step 5 no longer exists and you must use the token from the backup.
-It also must never point at a live instance.
+This answers with `Restoring KV snapshot` and the warning that the operator token
+was overwritten. From that moment the instance **is** the source instance: same
+bucket names, same users, same tokens. Consequences that look like errors:
+
+- `restored_demo` does not exist — a full restore never creates it
+- your test token returns `401` — it was overwritten by the snapshot's tokens
+- the buckets are called exactly as on the source, so query them by their real names
+
+`--full` replaces everything on the target. Only ever point it at a scratch
+instance.
 
 ## 9. Check that the data arrived
+
+For a single-bucket restore:
 
 ```bash
 sudo docker exec -e INFLUX_TOKEN="$INFLUX_TOKEN" influxrestore influx query --org "$INFLUX_ORG" 'from(bucket:"restored_demo") |> range(start:0) |> group(columns:["_measurement","_field"]) |> count()'
 ```
 
+After `--full`, use the **original** bucket name and the token from the backup:
+
+```bash
+sudo docker exec -e INFLUX_TOKEN="<token from the backup>" influxrestore influx query --org "<original org>" 'from(bucket:"<original bucket>") |> range(start:0) |> group(columns:["_measurement","_field"]) |> count()'
+```
+
 A successful restore prints one `Restoring TSM snapshot for shard N` line per
 shard. Shard numbers are not sequential — they restore in parallel — so the last
 number says nothing about completeness. The counts from this command do.
+
+Note what the counts reveal: the instance holds more than the collector's data.
+Measurements such as `POWER`, `Total_In`, `Total_Out` or `Fritzbox` come from
+other producers, and a full backup captures them just as faithfully. That is a
+feature — and a reminder that "the backup" is the whole database, not one project.
 
 ## 10. Shut it down
 
@@ -139,7 +167,8 @@ Remove it deliberately rather than remembering later.
 | container exits immediately, log mentions the volume name | a stray argument after the image name became the container command |
 | `/tmp/...` mount appears empty inside the container | Docker snap with a private `/tmp`; use `$HOME` |
 | `401 unauthorized access` after `--full` | the restore replaced the tokens; use the ones from the backup |
-| `could not find bucket` | the restore did not create it — check the exit code of step 8 |
+| `could not find bucket` | after `--full` the original names apply; after `--bucket … --new-bucket …` only the new name exists |
+| `could not find bucket` (2) | the restore did not create it — check the exit code of step 8 |
 | `restore path must be specified as a single positional argument` | broken quoting in the command, usually the token |
 | `cp: cannot create regular file … Permission denied` | container runs as uid 10001, target owned by root — `chown` or `--user 0:0` |
 
