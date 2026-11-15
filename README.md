@@ -153,6 +153,16 @@ wintergarten01 power=4.0 1793453389773733213
 `--dry-run` prints the line protocol and needs no InfluxDB configuration at all,
 which is the safe way to check a rename before it creates a new series.
 
+### Is the dashboard complete?
+
+`dashboard_coverage.py` compares dashboard exports against the series that are
+actually in the bucket: sensors no panel shows, panels pointing at series that no
+longer exist, and sensors that stopped reporting.
+
+```bash
+python dashboard_coverage.py private/*.json
+```
+
 ### Historic data (one-time)
 
 `import_history.py` loads the old CSV export (2019–2024, one file per sensor and
